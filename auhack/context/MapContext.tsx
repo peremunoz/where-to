@@ -63,6 +63,7 @@ interface MapContextValue {
   selectedBuildingId: string | null;
   recentSavedBuildingId: string | null;
   buildingInfoOpen: boolean;
+  directionsTargetBuildingId: string | null;
   isMobileViewport: boolean;
   activeFloor: FloorLabel;
   role: UserRole;
@@ -86,6 +87,7 @@ interface MapContextValue {
   setDraftBuildingFootprint: (polygon: [number, number][]) => void;
   openBuildingInfo: () => void;
   closeBuildingInfo: () => void;
+  setDirectionsTargetBuildingId: (buildingId: string | null) => void;
   publishFootprint: (input: { name: string; totalFloors: number; floorCapacities: Record<number, number> }) => void;
   saveBuildingDesign: () => Promise<void>;
   addSeat: (input: { coordinates: [number, number]; sensorId?: string }) => void;
@@ -102,14 +104,12 @@ const MapContext = createContext<MapContextValue | undefined>(undefined);
 
 const DEFAULT_FLOOR: FloorLabel = "G";
 
-const FLOOR_LABELS: FloorLabel[] = ["G", "1", "2", "3", "4"];
-
 function floorNumberToLabel(floorNumber: number): FloorLabel {
   if (floorNumber <= 1) {
     return "G";
   }
 
-  return FLOOR_LABELS[Math.min(floorNumber - 1, FLOOR_LABELS.length - 1)] as FloorLabel;
+  return String(floorNumber - 1);
 }
 
 function polygonCenter(points: [number, number][]): [number, number] {
@@ -306,6 +306,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
   const [currentBuildingData, setCurrentBuildingData] = useState<CurrentBuildingData | null>(null);
   const [recentSavedBuildingId, setRecentSavedBuildingId] = useState<string | null>(null);
   const [buildingInfoOpen, setBuildingInfoOpen] = useState(false);
+  const [directionsTargetBuildingId, setDirectionsTargetBuildingId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -761,6 +762,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
     selectedBuildingId,
     recentSavedBuildingId,
     buildingInfoOpen,
+    directionsTargetBuildingId,
     isMobileViewport,
     activeFloor,
     role,
@@ -784,6 +786,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
     setDraftBuildingFootprint,
     openBuildingInfo,
     closeBuildingInfo,
+    setDirectionsTargetBuildingId,
     publishFootprint,
     saveBuildingDesign,
     addSeat,

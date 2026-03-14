@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import type { FeatureCollection } from "geojson";
+import mapboxgl from "mapbox-gl";
 import Map, {
+  GeolocateControl,
   Layer,
   NavigationControl,
   Popup,
@@ -30,6 +32,8 @@ interface HoveredFloor {
 }
 
 const FLOOR_HEIGHT = 4.5;
+const LIGHT_PRESETS = ["dawn", "day", "dusk", "night"] as const;
+type LightPreset = (typeof LIGHT_PRESETS)[number];
 
 const buildingFillLayer: LayerProps = {
   id: "building-fill",
@@ -159,31 +163,67 @@ const activeFloorPlateLayer: LayerProps = {
 
 const activeSeatLayer: LayerProps = {
   id: "architect-seat-active",
-  type: "circle",
+  type: "fill-extrusion",
   paint: {
-    "circle-color": "#34C759",
-    "circle-radius": 5,
-    "circle-stroke-color": "#ffffff",
-    "circle-stroke-width": 1,
+    "fill-extrusion-color": "#10b981",
+    "fill-extrusion-base": ["coalesce", ["get", "seatBase"], 0],
+    "fill-extrusion-height": ["coalesce", ["get", "seatTop"], 0.6],
+    "fill-extrusion-opacity": 0.98,
   },
 };
 
 const inactiveSeatLayer: LayerProps = {
   id: "architect-seat-inactive",
+  type: "fill-extrusion",
+  paint: {
+    "fill-extrusion-color": "#10b981",
+    "fill-extrusion-base": ["coalesce", ["get", "seatBase"], 0],
+    "fill-extrusion-height": ["coalesce", ["get", "seatTop"], 0.6],
+    "fill-extrusion-opacity": 0.28,
+  },
+};
+
+const userLocationLayer: LayerProps = {
+  id: "user-location",
   type: "circle",
   paint: {
-    "circle-color": "#34C759",
-    "circle-radius": 4,
-    "circle-opacity": 0.2,
+    "circle-color": "#2563eb",
+    "circle-radius": 7,
+    "circle-stroke-color": "#ffffff",
+    "circle-stroke-width": 2,
+  },
+};
+
+const buildingDistanceLabelLayer: LayerProps = {
+  id: "building-distance-labels",
+  type: "symbol",
+  layout: {
+    "text-field": ["concat", ["get", "name"], "  ", ["get", "distanceText"]],
+    "text-size": 12,
+    "text-anchor": "left",
+    "text-offset": [1.2, 0],
+    "text-allow-overlap": true,
+    "text-font": ["Open Sans Semibold", "Arial Unicode MS Bold"],
+  },
+  paint: {
+    "text-color": "#0f172a",
+    "text-halo-color": "#ffffff",
+    "text-halo-width": 1.4,
+  },
+};
+
+const directionsRouteLayer: LayerProps = {
+  id: "directions-route",
+  type: "line",
+  paint: {
+    "line-color": "#0ea5e9",
+    "line-width": ["interpolate", ["linear"], ["zoom"], 12, 3, 16, 5, 19, 8],
+    "line-opacity": 0.95,
   },
 };
 
 function floorMatchFilter(floor: number) {
   return ["==", ["get", "floor"], floor];
-}
-
-function floorNonMatchFilter(floor: number) {
-  return ["!=", ["get", "floor"], floor];
 }
 
 function floorLabelToNumber(label: string): number {
@@ -197,6 +237,46 @@ function floorLabelToNumber(label: string): number {
   }
 
   return parsed + 1;
+}
+
+function seatHalfSizeByType(type: "TABLE" | "CHAIR" | "SOFA"): number {
+  if (type === "TABLE") {
+    return 0.000026;
+  }
+
+  if (type === "SOFA") {
+    return 0.00003;
+  }
+
+  return 0.00002;
+}
+
+function seatHeightByType(type: "TABLE" | "CHAIR" | "SOFA"): number {
+  if (type === "TABLE") {
+    return 1.1;
+  }
+
+  if (type === "SOFA") {
+    return 0.9;
+  }
+
+  return 0.75;
+}
+
+function seatPolygonFromPoint(
+  coordinates: [number, number],
+  type: "TABLE" | "CHAIR" | "SOFA",
+): [number, number][] {
+  const [lng, lat] = coordinates;
+  const half = seatHalfSizeByType(type);
+
+  return [
+    [lng - half, lat - half],
+    [lng + half, lat - half],
+    [lng + half, lat + half],
+    [lng - half, lat + half],
+    [lng - half, lat - half],
+  ];
 }
 
 function asRing(coords: unknown): [number, number][] | null {
@@ -214,6 +294,14 @@ function asRing(coords: unknown): [number, number][] | null {
     .map((vertex) => [Number(vertex[0]), Number(vertex[1])] as [number, number]);
 
   return ring.length >= 4 ? ring : null;
+}
+
+function formatDistance(meters: number): string {
+  if (meters < 1000) {
+    return `${Math.round(meters)} m`;
+  }
+
+  return `${(meters / 1000).toFixed(2)} km`;
 }
 
 function architectBuildingGeoJSON(footprint: [number, number][] | null, name: string): FeatureCollection {
@@ -244,12 +332,14 @@ function seatsGeoJSON(seats: Array<{ id: string; floor: number; coordinates: [nu
     type: "FeatureCollection",
     features: seats.map((seat) => ({
       type: "Feature" as const,
-      geometry: { type: "Point" as const, coordinates: seat.coordinates },
+      geometry: { type: "Polygon" as const, coordinates: [seatPolygonFromPoint(seat.coordinates, seat.type)] },
       properties: {
         id: seat.id,
         floor: seat.floor,
         type: seat.type,
         spaceId: seat.spaceId,
+        seatBase: (Math.max(1, seat.floor) - 1) * FLOOR_HEIGHT + 0.08,
+        seatTop: (Math.max(1, seat.floor) - 1) * FLOOR_HEIGHT + 0.08 + seatHeightByType(seat.type),
       },
     })),
   } as FeatureCollection;
@@ -317,8 +407,8 @@ function buildingSeatsGeoJSON(
           room.seats.map((seat) => ({
             type: "Feature" as const,
             geometry: {
-              type: "Point" as const,
-              coordinates: seat.coordinates,
+              type: "Polygon" as const,
+              coordinates: [seatPolygonFromPoint(seat.coordinates, seat.type)],
             },
             properties: {
               id: seat.id,
@@ -327,6 +417,9 @@ function buildingSeatsGeoJSON(
               type: seat.type,
               status: seat.status,
               isHoveredFloor,
+              seatBase: (Math.max(1, floorNumber) - 1) * FLOOR_HEIGHT + 0.08,
+              seatTop:
+                (Math.max(1, floorNumber) - 1) * FLOOR_HEIGHT + 0.08 + seatHeightByType(seat.type),
             },
           })),
         );
@@ -335,10 +428,65 @@ function buildingSeatsGeoJSON(
   } as FeatureCollection;
 }
 
+function userLocationGeoJSON(userLocation: [number, number] | null): FeatureCollection {
+  if (!userLocation) {
+    return { type: "FeatureCollection", features: [] } as FeatureCollection;
+  }
+
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: userLocation,
+        },
+        properties: {
+          id: "current-user-location",
+        },
+      },
+    ],
+  } as FeatureCollection;
+}
+
+function buildingDistanceGeoJSON(
+  buildings: ReturnType<typeof useMapContext>["buildings"],
+  userLocation: [number, number] | null,
+): FeatureCollection {
+  if (!userLocation) {
+    return { type: "FeatureCollection", features: [] } as FeatureCollection;
+  }
+
+  const userLngLat = new mapboxgl.LngLat(userLocation[0], userLocation[1]);
+
+  return {
+    type: "FeatureCollection",
+    features: buildings.map((building) => {
+      const buildingLngLat = new mapboxgl.LngLat(building.center[0], building.center[1]);
+      const distanceMeters = userLngLat.distanceTo(buildingLngLat);
+
+      return {
+        type: "Feature" as const,
+        geometry: {
+          type: "Point" as const,
+          coordinates: building.center,
+        },
+        properties: {
+          id: `${building.id}-distance-label`,
+          name: building.name,
+          distanceText: formatDistance(distanceMeters),
+        },
+      };
+    }),
+  } as FeatureCollection;
+}
+
 export function EditMapComponent() {
   const {
     buildings,
     recentSavedBuildingId,
+    directionsTargetBuildingId,
     role,
     isEditing,
     creationPhase,
@@ -371,6 +519,12 @@ export function EditMapComponent() {
   const [selectedFloor, setSelectedFloor] = useState<HoveredFloor | null>(null);
   const [is3DMode, setIs3DMode] = useState(false);
   const [hasMapLoaded, setHasMapLoaded] = useState(false);
+  const [lightPreset, setLightPreset] = useState<LightPreset>("day");
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [directionsRouteData, setDirectionsRouteData] = useState<FeatureCollection>({
+    type: "FeatureCollection",
+    features: [],
+  });
 
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -409,6 +563,17 @@ export function EditMapComponent() {
     [currentBuildingData?.seats],
   );
 
+  const architectSeatFloors = useMemo(() => {
+    const totalFloors = Math.max(1, currentBuildingData?.totalFloors ?? 1);
+    const floors = new Set<number>([activeFloorNumber]);
+
+    for (let floor = 1; floor <= totalFloors; floor += 1) {
+      floors.add(floor);
+    }
+
+    return Array.from(floors).sort((a, b) => a - b);
+  }, [activeFloorNumber, currentBuildingData?.totalFloors]);
+
   const buildingFloorsData = useMemo(
     () => buildingFloorsGeoJSON(buildings, selectedFloor),
     [buildings, selectedFloor],
@@ -419,9 +584,19 @@ export function EditMapComponent() {
     [buildings, selectedFloor],
   );
 
-  const hoveredFloorSeatTranslate: [number, number] = useMemo(
-    () => [0, selectedFloor ? selectedFloor.floorNumber * -6 : 0],
-    [selectedFloor],
+  const userLocationData = useMemo(
+    () => userLocationGeoJSON(userLocation),
+    [userLocation],
+  );
+
+  const buildingDistanceData = useMemo(
+    () => buildingDistanceGeoJSON(buildings, userLocation),
+    [buildings, userLocation],
+  );
+
+  const directionsTargetBuilding = useMemo(
+    () => buildings.find((building) => building.id === directionsTargetBuildingId) ?? null,
+    [buildings, directionsTargetBuildingId],
   );
 
   const togglePerspective = useCallback(() => {
@@ -614,17 +789,6 @@ export function EditMapComponent() {
       } as never);
     }
 
-    map.setLights([
-      {
-        id: "campus-flat-light",
-        type: "flat",
-        properties: {
-          color: "white",
-          intensity: 0.4,
-        },
-      },
-    ] as never);
-
     (map as unknown as { __campusDrawInitialized?: boolean }).__campusDrawInitialized = true;
 
     // Draw can initialize after effects run; force-sync active mode here.
@@ -666,10 +830,109 @@ export function EditMapComponent() {
   }, [applyDrawMode]);
 
   useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map || !map.isStyleLoaded()) {
+      return;
+    }
+
+    map.setConfigProperty("basemap", "lightPreset", lightPreset);
+  }, [hasMapLoaded, lightPreset]);
+
+  useEffect(() => {
     if (!buildingInfoOpen) {
       setSelectedFloor(null);
     }
   }, [buildingInfoOpen]);
+
+  useEffect(() => {
+    if (!token || !userLocation || !directionsTargetBuilding) {
+      setDirectionsRouteData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const loadRoute = async () => {
+      try {
+        const from = `${userLocation[0]},${userLocation[1]}`;
+        const to = `${directionsTargetBuilding.center[0]},${directionsTargetBuilding.center[1]}`;
+        const requestUrl = `https://api.mapbox.com/directions/v5/mapbox/walking/${from};${to}?alternatives=false&continue_straight=true&geometries=geojson&overview=full&steps=false&access_token=${encodeURIComponent(token)}`;
+
+        const response = await fetch(requestUrl, { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error("Failed to load route");
+        }
+
+        const payload = (await response.json()) as {
+          routes?: Array<{ geometry?: { type?: string; coordinates?: unknown } }>;
+        };
+
+        const geometry = payload.routes?.[0]?.geometry;
+        if (geometry?.type !== "LineString" || !Array.isArray(geometry.coordinates)) {
+          setDirectionsRouteData({ type: "FeatureCollection", features: [] });
+          return;
+        }
+
+        const lineCoordinates = geometry.coordinates
+          .filter((point) => Array.isArray(point) && point.length >= 2)
+          .map((point) => [Number(point[0]), Number(point[1])] as [number, number])
+          .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+
+        if (lineCoordinates.length < 2) {
+          setDirectionsRouteData({ type: "FeatureCollection", features: [] });
+          return;
+        }
+
+        setDirectionsRouteData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              geometry: {
+                type: "LineString",
+                coordinates: lineCoordinates,
+              },
+              properties: {
+                id: `route-${directionsTargetBuilding.id}`,
+              },
+            },
+          ],
+        } as FeatureCollection);
+      } catch {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setDirectionsRouteData({ type: "FeatureCollection", features: [] });
+      }
+    };
+
+    void loadRoute();
+
+    return () => {
+      controller.abort();
+    };
+  }, [directionsTargetBuilding, token, userLocation]);
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation([position.coords.longitude, position.coords.latitude]);
+      },
+      () => {
+        // Ignore geolocation errors so the map remains fully usable.
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 60000,
+        timeout: 12000,
+      },
+    );
+  }, []);
 
   useEffect(() => {
     if (!recentSavedBuildingId) {
@@ -731,7 +994,6 @@ export function EditMapComponent() {
 
     setSelectedBuildingId(building.id);
     openBuildingInfo();
-    mapRef.current?.flyTo({ center: building.center, zoom: 17.2, duration: 1200 });
   };
 
   const onMapClick = (event: MapMouseEvent) => {
@@ -838,6 +1100,7 @@ export function EditMapComponent() {
       mapboxAccessToken={token}
       initialViewState={{ longitude: 10.2039, latitude: 56.1712, zoom: 15.2, pitch: 20, bearing: 50 }}
       mapStyle="mapbox://styles/mapbox/standard"
+      styleDiffing
       style={{ width: "100%", height: "100%" }}
       cursor={isEditing && role === "admin" && activeTool !== "none" ? "crosshair" : "grab"}
       doubleClickZoom={false}
@@ -858,6 +1121,15 @@ export function EditMapComponent() {
       onIdle={handleMapIdle}
     >
       <NavigationControl position="bottom-right" showCompass />
+      <GeolocateControl
+        position="bottom-right"
+        positionOptions={{ enableHighAccuracy: true }}
+        trackUserLocation
+        showUserHeading
+        onGeolocate={(position) => {
+          setUserLocation([position.coords.longitude, position.coords.latitude]);
+        }}
+      />
 
       {canRenderMapSources ? (
         <>
@@ -865,6 +1137,24 @@ export function EditMapComponent() {
             <Layer {...buildingFillLayer} />
             <Layer {...buildingOutlineLayer} />
           </Source>
+
+          {directionsRouteData.features.length > 0 ? (
+            <Source id="directions-route" type="geojson" data={directionsRouteData}>
+              <Layer {...directionsRouteLayer} />
+            </Source>
+          ) : null}
+
+          {userLocation ? (
+            <Source id="user-location" type="geojson" data={userLocationData}>
+              <Layer {...userLocationLayer} />
+            </Source>
+          ) : null}
+
+          {userLocation ? (
+            <Source id="building-distance-labels" type="geojson" data={buildingDistanceData}>
+              <Layer {...buildingDistanceLabelLayer} />
+            </Source>
+          ) : null}
 
           {shouldRender3D ? (
             <Source id="building-floors" type="geojson" data={buildingFloorsData}>
@@ -876,74 +1166,50 @@ export function EditMapComponent() {
           ) : null}
 
           {shouldRender3D ? (
-            <Source id="building-floor-seats" type="geojson" data={buildingSeatsData}>
+            <Source id="building-floor-seats" type="geojson" data={buildingSeatsData} tolerance={0}>
               <Layer
                 id="building-seat-available"
-                type="circle"
+                type="fill-extrusion"
                 filter={[
                   "all",
                   ["==", ["coalesce", ["get", "isHoveredFloor"], 0], 1],
                   ["==", ["get", "status"], "Available"],
                 ]}
                 paint={{
-                  "circle-color": "#22c55e",
-                  "circle-radius": [
-                    "case",
-                    ["==", ["get", "type"], "TABLE"],
-                    6,
-                    ["==", ["get", "type"], "SOFA"],
-                    6.5,
-                    4,
-                  ],
-                  "circle-stroke-color": "#ffffff",
-                  "circle-stroke-width": 1,
-                  "circle-translate": hoveredFloorSeatTranslate,
+                  "fill-extrusion-color": "#22c55e",
+                  "fill-extrusion-base": ["coalesce", ["get", "seatBase"], 0],
+                  "fill-extrusion-height": ["coalesce", ["get", "seatTop"], 0.6],
+                  "fill-extrusion-opacity": 0.98,
                 }}
               />
               <Layer
                 id="building-seat-occupied"
-                type="circle"
+                type="fill-extrusion"
                 filter={[
                   "all",
                   ["==", ["coalesce", ["get", "isHoveredFloor"], 0], 1],
                   ["==", ["get", "status"], "Occupied"],
                 ]}
                 paint={{
-                  "circle-color": "#ef4444",
-                  "circle-radius": [
-                    "case",
-                    ["==", ["get", "type"], "TABLE"],
-                    6,
-                    ["==", ["get", "type"], "SOFA"],
-                    6.5,
-                    4,
-                  ],
-                  "circle-stroke-color": "#ffffff",
-                  "circle-stroke-width": 1,
-                  "circle-translate": hoveredFloorSeatTranslate,
+                  "fill-extrusion-color": "#ef4444",
+                  "fill-extrusion-base": ["coalesce", ["get", "seatBase"], 0],
+                  "fill-extrusion-height": ["coalesce", ["get", "seatTop"], 0.6],
+                  "fill-extrusion-opacity": 0.98,
                 }}
               />
               <Layer
                 id="building-seat-maintenance"
-                type="circle"
+                type="fill-extrusion"
                 filter={[
                   "all",
                   ["==", ["coalesce", ["get", "isHoveredFloor"], 0], 1],
                   ["==", ["get", "status"], "Maintenance"],
                 ]}
                 paint={{
-                  "circle-color": "#f59e0b",
-                  "circle-radius": [
-                    "case",
-                    ["==", ["get", "type"], "TABLE"],
-                    6,
-                    ["==", ["get", "type"], "SOFA"],
-                    6.5,
-                    4,
-                  ],
-                  "circle-stroke-color": "#ffffff",
-                  "circle-stroke-width": 1,
-                  "circle-translate": hoveredFloorSeatTranslate,
+                  "fill-extrusion-color": "#f59e0b",
+                  "fill-extrusion-base": ["coalesce", ["get", "seatBase"], 0],
+                  "fill-extrusion-height": ["coalesce", ["get", "seatTop"], 0.6],
+                  "fill-extrusion-opacity": 0.98,
                 }}
               />
             </Source>
@@ -965,27 +1231,23 @@ export function EditMapComponent() {
             </Source>
           ) : null}
 
-          <Source id="architect-seats" type="geojson" data={architectSeatsData}>
-            <Layer
-              {...({
-                ...inactiveSeatLayer,
-                filter: floorNonMatchFilter(activeFloorNumber),
-                paint: {
-                  ...inactiveSeatLayer.paint,
-                  "circle-translate": [0, shouldRender3D ? -activeFloorNumber * 6 : 0],
-                },
-              } as LayerProps)}
-            />
-            <Layer
-              {...({
-                ...activeSeatLayer,
-                filter: floorMatchFilter(activeFloorNumber),
-                paint: {
-                  ...activeSeatLayer.paint,
-                  "circle-translate": [0, shouldRender3D ? -activeFloorNumber * 6 : 0],
-                },
-              } as LayerProps)}
-            />
+          <Source id="architect-seats" type="geojson" data={architectSeatsData} tolerance={0}>
+            {architectSeatFloors.map((floor) => {
+              const isActiveFloor = floor === activeFloorNumber;
+              const layerBase = isActiveFloor ? activeSeatLayer : inactiveSeatLayer;
+
+              return (
+                <Layer
+                  key={`architect-seat-floor-${floor}`}
+                  {...({
+                    ...layerBase,
+                    id: `architect-seat-${isActiveFloor ? "active" : "inactive"}-f${floor}`,
+                    filter: floorMatchFilter(floor),
+                    paint: layerBase.paint,
+                  } as LayerProps)}
+                />
+              );
+            })}
           </Source>
         </>
       ) : null}
@@ -1012,6 +1274,31 @@ export function EditMapComponent() {
           </div>
         </Popup>
       ) : null}
+
+      <div className="absolute left-1/2 top-14 z-20 w-[calc(100%-1rem)] max-w-lg -translate-x-1/2 rounded-2xl border border-white/70 bg-white/85 p-1.5 shadow-xl shadow-slate-900/15 backdrop-blur-md sm:top-4 sm:z-40 sm:w-auto sm:max-w-none">
+        <div className="flex items-center gap-1 overflow-x-auto whitespace-nowrap pr-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          {LIGHT_PRESETS.map((preset) => {
+            const isActive = lightPreset === preset;
+            return (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => {
+                  setLightPreset(preset);
+                }}
+                className={`shrink-0 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold capitalize transition sm:px-3 sm:text-xs ${
+                  isActive
+                    ? "bg-slate-900 text-white shadow-sm"
+                    : "bg-white/90 text-slate-700 hover:bg-slate-100"
+                }`}
+                title={`Set map light to ${preset}`}
+              >
+                {preset}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <div className="absolute bottom-6 right-6 z-40">
         <button

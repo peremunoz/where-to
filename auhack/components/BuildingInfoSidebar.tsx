@@ -67,6 +67,8 @@ export function BuildingInfoSidebar() {
     setSelectedBuildingId,
     buildingInfoOpen,
     closeBuildingInfo,
+    directionsTargetBuildingId,
+    setDirectionsTargetBuildingId,
     activeFloor,
     setActiveFloor,
     role,
@@ -149,7 +151,28 @@ export function BuildingInfoSidebar() {
             <button
               type="button"
               onClick={() => {
+                if (!selectedBuilding) {
+                  return;
+                }
+
+                if (directionsTargetBuildingId === selectedBuilding.id) {
+                  setDirectionsTargetBuildingId(null);
+                  return;
+                }
+
+                setDirectionsTargetBuildingId(selectedBuilding.id);
+              }}
+              className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+            >
+              {selectedBuilding && directionsTargetBuildingId === selectedBuilding.id
+                ? "Clear Directions"
+                : "Directions"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 setSelectedBuildingId(null);
+                setDirectionsTargetBuildingId(null);
                 closeBuildingInfo();
               }}
               className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"

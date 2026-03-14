@@ -2,7 +2,7 @@ import type { FeatureCollection } from "geojson";
 
 export type SeatStatus = "Available" | "Occupied" | "Maintenance";
 export type SeatType = "TABLE" | "CHAIR" | "SOFA";
-export type FloorLabel = "G" | "1" | "2" | "3" | "4";
+export type FloorLabel = string;
 
 export interface Seat {
   id: string;
