@@ -209,11 +209,11 @@ function mapApiSeatStatus(status: ApiSeat["status"]): Seat["status"] {
 }
 
 function mapApiSeatType(type: ApiSeat["type"]): SeatType {
-  if (type === "TABLE" || type === "CHAIR" || type === "SOFA") {
+  if (type === "TABLE" || type === "COMPUTER" || type === "SOFA") {
     return type;
   }
 
-  return "CHAIR";
+  return "COMPUTER";
 }
 
 function fallbackPolygonFromSeats(seatCoordinates: [number, number][]): [number, number][] {
@@ -302,7 +302,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
 
   const [creationPhase, setCreationPhase] = useState<CreationPhase>(1);
   const [activeTool, setActiveTool] = useState<ArchitectTool>("building");
-  const [activeSeatType, setActiveSeatType] = useState<SeatType>("CHAIR");
+  const [activeSeatType, setActiveSeatType] = useState<SeatType>("COMPUTER");
   const [activeFloorNumber, setActiveFloorNumber] = useState(1);
   const [draftBuildingFootprint, setDraftBuildingFootprintState] = useState<[number, number][] | null>(null);
   const [currentBuildingData, setCurrentBuildingData] = useState<CurrentBuildingData | null>(null);

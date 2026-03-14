@@ -239,7 +239,7 @@ function floorLabelToNumber(label: string): number {
   return parsed + 1;
 }
 
-function seatHalfSizeByType(type: "TABLE" | "CHAIR" | "SOFA"): number {
+function seatHalfSizeByType(type: "TABLE" | "COMPUTER" | "SOFA"): number {
   if (type === "TABLE") {
     return 0.000026;
   }
@@ -251,7 +251,7 @@ function seatHalfSizeByType(type: "TABLE" | "CHAIR" | "SOFA"): number {
   return 0.00002;
 }
 
-function seatHeightByType(type: "TABLE" | "CHAIR" | "SOFA"): number {
+function seatHeightByType(type: "TABLE" | "COMPUTER" | "SOFA"): number {
   if (type === "TABLE") {
     return 1.1;
   }
@@ -265,7 +265,7 @@ function seatHeightByType(type: "TABLE" | "CHAIR" | "SOFA"): number {
 
 function seatPolygonFromPoint(
   coordinates: [number, number],
-  type: "TABLE" | "CHAIR" | "SOFA",
+  type: "TABLE" | "COMPUTER" | "SOFA",
 ): [number, number][] {
   const [lng, lat] = coordinates;
   const half = seatHalfSizeByType(type);
@@ -327,7 +327,7 @@ function architectBuildingGeoJSON(footprint: [number, number][] | null, name: st
   } as FeatureCollection;
 }
 
-function seatsGeoJSON(seats: Array<{ id: string; floor: number; coordinates: [number, number]; type: "TABLE" | "CHAIR" | "SOFA"; spaceId: string }>): FeatureCollection {
+function seatsGeoJSON(seats: Array<{ id: string; floor: number; coordinates: [number, number]; type: "TABLE" | "COMPUTER" | "SOFA"; spaceId: string }>): FeatureCollection {
   return {
     type: "FeatureCollection",
     features: seats.map((seat) => ({

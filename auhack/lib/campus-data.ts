@@ -1,7 +1,7 @@
 import type { FeatureCollection } from "geojson";
 
 export type SeatStatus = "Available" | "Occupied" | "Maintenance";
-export type SeatType = "TABLE" | "CHAIR" | "SOFA";
+export type SeatType = "TABLE" | "COMPUTER" | "SOFA";
 export type FloorLabel = string;
 
 export interface Seat {
@@ -79,7 +79,7 @@ function createRoomGrid(
     const seats: Seat[] = [0, 1, 2].map((seatOffset) => ({
       id: `${spec.id}-s${seatOffset + 1}`,
       sensorId: `S-${baseId.toUpperCase()}-${String(startSeatIndex + roomIndex * 3 + seatOffset).padStart(3, "0")}`,
-      type: "CHAIR",
+      type: "COMPUTER",
       status: statuses[(roomIndex + seatOffset) % statuses.length],
       floor,
       coordinates: [

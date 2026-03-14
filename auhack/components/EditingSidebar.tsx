@@ -243,7 +243,7 @@ export function EditingSidebar() {
                   onChange={(event) => setActiveSeatType(event.target.value as SeatType)}
                   className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-[#007AFF]/50"
                 >
-                  <option value="CHAIR">Chair</option>
+                  <option value="COMPUTER">Computer</option>
                   <option value="TABLE">Table</option>
                   <option value="SOFA">Sofa</option>
                 </select>
@@ -366,7 +366,7 @@ export function EditingSidebar() {
                           }
                           className="rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#007AFF]/50"
                         >
-                          <option value="CHAIR">Chair</option>
+                          <option value="COMPUTER">Computer</option>
                           <option value="TABLE">Table</option>
                           <option value="SOFA">Sofa</option>
                         </select>
