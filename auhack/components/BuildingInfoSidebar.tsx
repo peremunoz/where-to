@@ -32,8 +32,8 @@ function toSeatSchemePoints(seats: Seat[]): SeatSchemePoint[] {
 
     return {
       seat,
-      left: Math.min(96, Math.max(4, left)),
-      top: Math.min(96, Math.max(4, top)),
+      left: Math.min(92, Math.max(8, left)),
+      top: Math.min(92, Math.max(8, top)),
     };
   });
 }
@@ -127,7 +127,7 @@ export function BuildingInfoSidebar() {
 
   return (
     <aside
-      className={`absolute right-0 top-0 z-40 h-full w-full border-l border-white/60 bg-white/85 p-4 shadow-2xl shadow-slate-900/20 backdrop-blur-xl transition-transform duration-300 sm:w-[360px] sm:p-5 ${
+      className={`absolute right-0 top-0 z-40 h-full w-full border-l border-white/60 bg-white/85 p-4 shadow-2xl shadow-slate-900/20 backdrop-blur-xl transition-transform duration-300 sm:w-[430px] sm:p-5 ${
         isVisible ? "translate-x-0" : "translate-x-full"
       }`}
     >
@@ -208,7 +208,7 @@ export function BuildingInfoSidebar() {
                 ))}
               </div>
 
-              <div className="relative h-44 overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100">
+              <div className="relative h-56 overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 p-3">
                 {selectedFloorScheme.points.map(({ seat, left, top }) => (
                   <div
                     key={seat.id}
