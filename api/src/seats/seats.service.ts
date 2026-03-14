@@ -4,17 +4,27 @@ import { Repository, FindOptionsWhere } from 'typeorm';
 import { Seat } from './seat.entity.js';
 import { CreateSeatDto } from './dto/create-seat.dto.js';
 import { UpdateSeatDto } from './dto/update-seat.dto.js';
+import { RealtimeEventsService } from '../realtime/realtime-events.service.js';
 
 @Injectable()
 export class SeatsService {
   constructor(
     @InjectRepository(Seat)
     private readonly seatRepo: Repository<Seat>,
+    private readonly realtimeEventsService: RealtimeEventsService,
   ) {}
 
-  create(dto: CreateSeatDto): Promise<Seat> {
+  async create(dto: CreateSeatDto): Promise<Seat> {
     const seat = this.seatRepo.create(dto);
-    return this.seatRepo.save(seat);
+    const saved = await this.seatRepo.save(seat);
+
+    this.realtimeEventsService.publish({
+      entity: 'seat',
+      action: 'created',
+      data: saved,
+    });
+
+    return saved;
   }
 
   findAll(floorId?: string): Promise<Seat[]> {
@@ -39,11 +49,25 @@ export class SeatsService {
   async update(id: string, dto: UpdateSeatDto): Promise<Seat> {
     const seat = await this.findOne(id);
     Object.assign(seat, dto);
-    return this.seatRepo.save(seat);
+    const saved = await this.seatRepo.save(seat);
+
+    this.realtimeEventsService.publish({
+      entity: 'seat',
+      action: 'updated',
+      data: saved,
+    });
+
+    return saved;
   }
 
   async remove(id: string): Promise<void> {
     const seat = await this.findOne(id);
     await this.seatRepo.remove(seat);
+
+    this.realtimeEventsService.publish({
+      entity: 'seat',
+      action: 'deleted',
+      data: { id: seat.id, floorId: seat.floorId },
+    });
   }
 }

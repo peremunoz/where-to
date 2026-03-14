@@ -19,6 +19,70 @@ All entities use **UUID** primary keys and include `createdAt` / `updatedAt` tim
 
 ---
 
+## Realtime Updates (SSE)
+
+Use Server-Sent Events to receive automatic updates when the API changes data.
+
+### `GET /api/events/stream`
+
+Creates a long-lived HTTP connection that streams events in realtime.
+
+**Headers:**
+- `Accept: text/event-stream`
+
+**Emitted events:**
+- `db-change` — emitted after create/update/delete operations for institutions, buildings, floors, and seats.
+- `heartbeat` — emitted every 25 seconds to keep the connection alive.
+
+### `db-change` payload
+
+```json
+{
+  "id": "8fcbf1bd-52fe-4677-bf16-7e564fd6d8f4",
+  "timestamp": "2026-03-14T15:24:40.345Z",
+  "entity": "floor",
+  "action": "updated",
+  "data": {
+    "id": "floor-uuid",
+    "floorNumber": 2,
+    "capacity": 140,
+    "buildingId": "building-uuid"
+  }
+}
+```
+
+### Frontend example (browser)
+
+```javascript
+const source = new EventSource('http://localhost:3000/api/events/stream');
+
+source.addEventListener('db-change', (event) => {
+  const message = JSON.parse(event.data);
+
+  // Suggested strategy:
+  // 1) Apply local optimistic patch for small payload updates.
+  // 2) Re-fetch affected resource for guaranteed consistency.
+  // Example keys usually available in message.data: institutionId, buildingId, floorId, id.
+  console.log('DB change:', message.entity, message.action, message.data);
+});
+
+source.addEventListener('heartbeat', () => {
+  // Optional: useful for connection diagnostics in the UI.
+});
+
+source.onerror = () => {
+  // Browser EventSource auto-reconnects by default.
+  console.warn('SSE connection interrupted, waiting for reconnect...');
+};
+```
+
+### Notes
+
+- This realtime stream publishes events for changes performed through this API service.
+- If some external process writes directly to the database, no SSE event is emitted by this app.
+
+---
+
 ## Enums
 
 | Enum | Values |

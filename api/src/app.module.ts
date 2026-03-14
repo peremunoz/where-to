@@ -6,6 +6,7 @@ import { InstitutionsModule } from './institutions/institutions.module.js';
 import { BuildingsModule } from './buildings/buildings.module.js';
 import { FloorsModule } from './floors/floors.module.js';
 import { SeatsModule } from './seats/seats.module.js';
+import { RealtimeEventsModule } from './realtime/realtime-events.module.js';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { SeatsModule } from './seats/seats.module.js';
     BuildingsModule,
     FloorsModule,
     SeatsModule,
+    RealtimeEventsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

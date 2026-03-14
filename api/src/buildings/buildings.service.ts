@@ -4,17 +4,35 @@ import { Repository, FindOptionsWhere } from 'typeorm';
 import { Building } from './building.entity.js';
 import { CreateBuildingDto } from './dto/create-building.dto.js';
 import { UpdateBuildingDto } from './dto/update-building.dto.js';
+import { RealtimeEventsService } from '../realtime/realtime-events.service.js';
 
 @Injectable()
 export class BuildingsService {
   constructor(
     @InjectRepository(Building)
     private readonly buildingRepo: Repository<Building>,
+    private readonly realtimeEventsService: RealtimeEventsService,
   ) {}
 
-  create(dto: CreateBuildingDto): Promise<Building> {
+  async create(dto: CreateBuildingDto): Promise<Building> {
     const building = this.buildingRepo.create(dto);
-    return this.buildingRepo.save(building);
+    const saved = await this.buildingRepo.save(building);
+
+    this.realtimeEventsService.publish({
+      entity: 'building',
+      action: 'created',
+      data: saved,
+    });
+
+    return saved;
+  }
+
+  private async findOneEntity(id: string): Promise<Building> {
+    const building = await this.buildingRepo.findOne({ where: { id } });
+    if (!building) {
+      throw new NotFoundException(`Building with ID "${id}" not found`);
+    }
+    return building;
   }
 
   private withTotalCapacity(
@@ -59,13 +77,27 @@ export class BuildingsService {
   }
 
   async update(id: string, dto: UpdateBuildingDto): Promise<Building> {
-    const building = await this.findOne(id);
+    const building = await this.findOneEntity(id);
     Object.assign(building, dto);
-    return this.buildingRepo.save(building);
+    const saved = await this.buildingRepo.save(building);
+
+    this.realtimeEventsService.publish({
+      entity: 'building',
+      action: 'updated',
+      data: saved,
+    });
+
+    return saved;
   }
 
   async remove(id: string): Promise<void> {
-    const building = await this.findOne(id);
+    const building = await this.findOneEntity(id);
     await this.buildingRepo.remove(building);
+
+    this.realtimeEventsService.publish({
+      entity: 'building',
+      action: 'deleted',
+      data: { id: building.id, institutionId: building.institutionId },
+    });
   }
 }

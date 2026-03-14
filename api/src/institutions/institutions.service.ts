@@ -4,17 +4,27 @@ import { Repository } from 'typeorm';
 import { Institution } from './institution.entity.js';
 import { CreateInstitutionDto } from './dto/create-institution.dto.js';
 import { UpdateInstitutionDto } from './dto/update-institution.dto.js';
+import { RealtimeEventsService } from '../realtime/realtime-events.service.js';
 
 @Injectable()
 export class InstitutionsService {
   constructor(
     @InjectRepository(Institution)
     private readonly institutionRepo: Repository<Institution>,
+    private readonly realtimeEventsService: RealtimeEventsService,
   ) {}
 
-  create(dto: CreateInstitutionDto): Promise<Institution> {
+  async create(dto: CreateInstitutionDto): Promise<Institution> {
     const institution = this.institutionRepo.create(dto);
-    return this.institutionRepo.save(institution);
+    const saved = await this.institutionRepo.save(institution);
+
+    this.realtimeEventsService.publish({
+      entity: 'institution',
+      action: 'created',
+      data: saved,
+    });
+
+    return saved;
   }
 
   findAll(includeTree?: boolean): Promise<Institution[]> {
@@ -64,11 +74,25 @@ export class InstitutionsService {
   async update(id: string, dto: UpdateInstitutionDto): Promise<Institution> {
     const institution = await this.findOne(id);
     Object.assign(institution, dto);
-    return this.institutionRepo.save(institution);
+    const saved = await this.institutionRepo.save(institution);
+
+    this.realtimeEventsService.publish({
+      entity: 'institution',
+      action: 'updated',
+      data: saved,
+    });
+
+    return saved;
   }
 
   async remove(id: string): Promise<void> {
     const institution = await this.findOne(id);
     await this.institutionRepo.remove(institution);
+
+    this.realtimeEventsService.publish({
+      entity: 'institution',
+      action: 'deleted',
+      data: { id: institution.id },
+    });
   }
 }
