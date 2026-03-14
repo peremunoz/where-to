@@ -58,8 +58,16 @@ export class BuildingsService {
     }
     const buildings = await this.buildingRepo.find({
       where,
-      relations: { floors: true },
-      order: { name: 'ASC' },
+      relations: { floors: { seats: true } },
+      order: {
+        name: 'ASC',
+        floors: {
+          floorNumber: 'ASC',
+          seats: {
+            label: 'ASC',
+          },
+        },
+      },
     });
 
     return buildings.map((building) => this.withTotalCapacity(building));

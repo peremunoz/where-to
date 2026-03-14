@@ -18,7 +18,7 @@ async function resetDatabase() {
     await client.query('GRANT ALL ON SCHEMA public TO public;');
     await client.query('COMMIT');
     console.log(
-      'Database schema reset completed. Restart the API to recreate tables.',
+      'Database schema reset completed. Restart the API to recreate tables and auto-seed the base institution.',
     );
   } catch (error) {
     await client.query('ROLLBACK');

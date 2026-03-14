@@ -1,6 +1,6 @@
 # Where-To API Documentation
 
-> **Base URL:** `http://localhost:3000/api`
+> **Base URL:** `http://localhost:3000`
 
 All endpoints return JSON. Request bodies must be `application/json`.
 
@@ -23,7 +23,7 @@ All entities use **UUID** primary keys and include `createdAt` / `updatedAt` tim
 
 Use Server-Sent Events to receive automatic updates when the API changes data.
 
-### `GET /api/events/stream`
+### `GET /events/stream`
 
 Creates a long-lived HTTP connection that streams events in realtime.
 
@@ -54,7 +54,7 @@ Creates a long-lived HTTP connection that streams events in realtime.
 ### Frontend example (browser)
 
 ```javascript
-const source = new EventSource('http://localhost:3000/api/events/stream');
+const source = new EventSource('http://localhost:3000/events/stream');
 
 source.addEventListener('db-change', (event) => {
   const message = JSON.parse(event.data);
@@ -94,7 +94,7 @@ source.onerror = () => {
 
 ## Institutions
 
-### `POST /api/institutions`
+### `POST /institutions`
 
 Create a new institution.
 
@@ -110,7 +110,7 @@ Create a new institution.
 
 ---
 
-### `GET /api/institutions`
+### `GET /institutions`
 
 List all institutions.
 
@@ -158,7 +158,7 @@ List all institutions.
 
 ---
 
-### `GET /api/institutions/:id`
+### `GET /institutions/:id`
 
 Get a single institution with its full nested tree.
 
@@ -168,7 +168,7 @@ Get a single institution with its full nested tree.
 
 ---
 
-### `PATCH /api/institutions/:id`
+### `PATCH /institutions/:id`
 
 Update institution fields.
 
@@ -183,7 +183,7 @@ Update institution fields.
 
 ---
 
-### `DELETE /api/institutions/:id`
+### `DELETE /institutions/:id`
 
 Delete an institution and all its nested children (cascading).
 
@@ -193,7 +193,7 @@ Delete an institution and all its nested children (cascading).
 
 ## Buildings
 
-### `POST /api/buildings`
+### `POST /buildings`
 
 **Body:**
 ```json
@@ -215,7 +215,7 @@ Delete an institution and all its nested children (cascading).
 
 ---
 
-### `GET /api/buildings`
+### `GET /buildings`
 
 | Query Param | Type | Description |
 |-------------|------|-------------|
@@ -227,13 +227,13 @@ Delete an institution and all its nested children (cascading).
 
 ---
 
-### `GET /api/buildings/:id`
+### `GET /buildings/:id`
 
 **Response:** `200` — building with nested `floors → seats` and computed `totalCapacity`.
 
 ---
 
-### `PATCH /api/buildings/:id`
+### `PATCH /buildings/:id`
 
 **Body** (all fields optional):
 ```json
@@ -252,7 +252,7 @@ Delete an institution and all its nested children (cascading).
 
 ---
 
-### `DELETE /api/buildings/:id`
+### `DELETE /buildings/:id`
 
 **Response:** `200`
 
@@ -260,7 +260,7 @@ Delete an institution and all its nested children (cascading).
 
 ## Floors
 
-### `POST /api/floors`
+### `POST /floors`
 
 **Body:**
 ```json
@@ -291,7 +291,7 @@ Delete an institution and all its nested children (cascading).
 
 ---
 
-### `GET /api/floors`
+### `GET /floors`
 
 | Query Param | Type | Description |
 |-------------|------|-------------|
@@ -301,13 +301,13 @@ Delete an institution and all its nested children (cascading).
 
 ---
 
-### `GET /api/floors/:id`
+### `GET /floors/:id`
 
 **Response:** `200` — floor with nested `seats`.
 
 ---
 
-### `PATCH /api/floors/:id`
+### `PATCH /floors/:id`
 
 **Body** (all fields optional):
 ```json
@@ -329,7 +329,7 @@ Delete an institution and all its nested children (cascading).
 
 ---
 
-### `DELETE /api/floors/:id`
+### `DELETE /floors/:id`
 
 **Response:** `200`
 
@@ -337,7 +337,7 @@ Delete an institution and all its nested children (cascading).
 
 ## Seats
 
-### `POST /api/seats`
+### `POST /seats`
 
 **Body:**
 ```json
@@ -358,7 +358,7 @@ Delete an institution and all its nested children (cascading).
 
 ---
 
-### `GET /api/seats`
+### `GET /seats`
 
 | Query Param | Type | Description |
 |-------------|------|-------------|
@@ -368,13 +368,13 @@ Delete an institution and all its nested children (cascading).
 
 ---
 
-### `GET /api/seats/:id`
+### `GET /seats/:id`
 
 **Response:** `200` — single seat object.
 
 ---
 
-### `PATCH /api/seats/:id`
+### `PATCH /seats/:id`
 
 **Body** (all fields optional):
 ```json
@@ -389,7 +389,7 @@ Delete an institution and all its nested children (cascading).
 
 ---
 
-### `DELETE /api/seats/:id`
+### `DELETE /seats/:id`
 
 **Response:** `200`
 
@@ -442,5 +442,5 @@ cd api && npm install
 # 3. Start the dev server
 npm run start:dev
 
-# 4. API is live at http://localhost:3000/api
+# 4. API is live at http://localhost:3000
 ```
