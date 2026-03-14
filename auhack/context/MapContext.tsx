@@ -16,14 +16,19 @@ import {
   type FloorLabel,
   type Room,
   type Seat,
+  type SeatType,
   findBuildingById,
 } from "@/lib/campus-data";
 import {
   createBuilding,
   createFloor,
   createSeat,
+  getEventsStreamUrl,
   getBuildings,
   HARDCODED_INSTITUTION_ID,
+  updateBuilding,
+  updateFloor,
+  updateSeat,
   type ApiBuildingWithCapacity,
   type ApiPoint,
   type ApiSeat,
@@ -38,6 +43,8 @@ export interface ArchitectSeat {
   floor: number;
   coordinates: [number, number];
   sensorId: string;
+  type: SeatType;
+  status: "AVAILABLE" | "OCCUPIED";
   spaceId: string;
 }
 
@@ -63,6 +70,7 @@ interface MapContextValue {
   isEditing: boolean;
   creationPhase: CreationPhase;
   activeTool: ArchitectTool;
+  activeSeatType: SeatType;
   draftBuildingFootprint: [number, number][] | null;
   currentBuildingData: CurrentBuildingData | null;
   activeFloorNumber: number;
@@ -73,6 +81,7 @@ interface MapContextValue {
   setActiveFloor: (floor: FloorLabel) => void;
   setCreationPhase: (phase: CreationPhase) => void;
   setActiveTool: (tool: ArchitectTool) => void;
+  setActiveSeatType: (seatType: SeatType) => void;
   setActiveFloorNumber: (floor: number) => void;
   setDraftBuildingFootprint: (polygon: [number, number][]) => void;
   openBuildingInfo: () => void;
@@ -80,6 +89,9 @@ interface MapContextValue {
   publishFootprint: (input: { name: string; totalFloors: number; floorCapacities: Record<number, number> }) => void;
   saveBuildingDesign: () => Promise<void>;
   addSeat: (input: { coordinates: [number, number]; sensorId?: string }) => void;
+  renameSelectedBuilding: (name: string) => Promise<void>;
+  updateSelectedFloorCapacity: (floorId: string, capacity: number) => Promise<void>;
+  updateSelectedSeat: (seatId: string, input: { label?: string; type?: SeatType; status?: "AVAILABLE" | "OCCUPIED" }) => Promise<void>;
   updateBuildingFootprint: (polygon: [number, number][]) => void;
   deleteLastInterior: () => void;
   setNotice: (message: string | null) => void;
@@ -194,6 +206,14 @@ function mapApiSeatStatus(status: ApiSeat["status"]): Seat["status"] {
   return "Maintenance";
 }
 
+function mapApiSeatType(type: ApiSeat["type"]): SeatType {
+  if (type === "TABLE" || type === "CHAIR" || type === "SOFA") {
+    return type;
+  }
+
+  return "CHAIR";
+}
+
 function fallbackPolygonFromSeats(seatCoordinates: [number, number][]): [number, number][] {
   const center = polygonCenter(seatCoordinates);
   const [lng, lat] = center;
@@ -232,6 +252,7 @@ function mapApiBuildingToBuilding(apiBuilding: ApiBuildingWithCapacity): Buildin
         .map((seat) => ({
           id: seat.id,
           sensorId: seat.label,
+          type: mapApiSeatType(seat.type),
           status: mapApiSeatStatus(seat.status),
           floor: floorLabel,
           coordinates:
@@ -251,6 +272,7 @@ function mapApiBuildingToBuilding(apiBuilding: ApiBuildingWithCapacity): Buildin
       return {
         id: apiFloor.id,
         label: floorLabel,
+        capacity: apiFloor.capacity,
         rooms: [floorRoom],
       };
     });
@@ -278,6 +300,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
 
   const [creationPhase, setCreationPhase] = useState<CreationPhase>(1);
   const [activeTool, setActiveTool] = useState<ArchitectTool>("building");
+  const [activeSeatType, setActiveSeatType] = useState<SeatType>("CHAIR");
   const [activeFloorNumber, setActiveFloorNumber] = useState(1);
   const [draftBuildingFootprint, setDraftBuildingFootprintState] = useState<[number, number][] | null>(null);
   const [currentBuildingData, setCurrentBuildingData] = useState<CurrentBuildingData | null>(null);
@@ -334,6 +357,53 @@ export function MapProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+    };
+  }, [syncBuildingsFromApi]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const source = new EventSource(getEventsStreamUrl());
+    let refreshTimeoutId: number | null = null;
+    let isSyncing = false;
+
+    const scheduleRefresh = () => {
+      if (refreshTimeoutId !== null) {
+        return;
+      }
+
+      refreshTimeoutId = window.setTimeout(async () => {
+        refreshTimeoutId = null;
+        if (isSyncing) {
+          return;
+        }
+
+        isSyncing = true;
+        try {
+          await syncBuildingsFromApi();
+        } catch {
+          // Ignore transient realtime refresh errors; next event or reconnect retries.
+        } finally {
+          isSyncing = false;
+        }
+      }, 200);
+    };
+
+    const onDbChange = () => {
+      scheduleRefresh();
+    };
+
+    source.addEventListener("db-change", onDbChange);
+
+    return () => {
+      source.removeEventListener("db-change", onDbChange);
+      source.close();
+
+      if (refreshTimeoutId !== null) {
+        window.clearTimeout(refreshTimeoutId);
+      }
     };
   }, [syncBuildingsFromApi]);
 
@@ -403,8 +473,8 @@ export function MapProvider({ children }: { children: ReactNode }) {
 
     if (!currentBuildingData && !draftBuildingFootprint) {
       setCreationPhase(1);
-      setActiveTool("building");
-      setNotice("Phase 1: Draw the building footprint.");
+      setActiveTool("none");
+      setNotice("Select a building to edit, or choose Draw Building to create a new one.");
       return;
     }
 
@@ -458,6 +528,35 @@ export function MapProvider({ children }: { children: ReactNode }) {
   };
 
   const addSeat = ({ coordinates, sensorId }: { coordinates: [number, number]; sensorId?: string }) => {
+    if (!currentBuildingData && selectedBuilding) {
+      const selectedFloorEntity = selectedBuilding.floors.find((floor) => floor.label === activeFloor);
+      if (!selectedFloorEntity) {
+        setNotice("Select a floor to place the seat.");
+        return;
+      }
+
+      const label = sensorId?.trim() || `S-${Date.now().toString().slice(-5)}`;
+
+      void (async () => {
+        try {
+          await createSeat({
+            type: activeSeatType,
+            label,
+            status: "AVAILABLE",
+            x: coordinates[0],
+            y: coordinates[1],
+            floorId: selectedFloorEntity.id,
+          });
+          await syncBuildingsFromApi();
+          setNotice(`Seat added on floor ${selectedFloorEntity.label}.`);
+        } catch {
+          setNotice("Failed to add seat to selected floor.");
+        }
+      })();
+
+      return;
+    }
+
     setCurrentBuildingData((previous) => {
       if (!previous) {
         return previous;
@@ -472,6 +571,8 @@ export function MapProvider({ children }: { children: ReactNode }) {
             floor: activeFloorNumber,
             coordinates,
             sensorId: sensorId?.trim() || `S-${Date.now().toString().slice(-5)}`,
+            type: activeSeatType,
+            status: "AVAILABLE",
             spaceId: `floor-${activeFloorNumber}`,
           },
         ],
@@ -570,9 +671,9 @@ export function MapProvider({ children }: { children: ReactNode }) {
           const label = seat.sensorId?.trim() || `Seat ${seat.floor}-${index + 1}`;
 
           return createSeat({
-            type: "CHAIR",
+            type: seat.type,
             label,
-            status: "AVAILABLE",
+            status: seat.status,
             x: seat.coordinates[0],
             y: seat.coordinates[1],
             floorId,
@@ -600,6 +701,52 @@ export function MapProvider({ children }: { children: ReactNode }) {
     setRecentSavedBuildingId(null);
   };
 
+  const renameSelectedBuilding = async (name: string) => {
+    if (!selectedBuildingId) {
+      setNotice("Select a building first.");
+      return;
+    }
+
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setNotice("Building name cannot be empty.");
+      return;
+    }
+
+    try {
+      await updateBuilding(selectedBuildingId, { name: trimmed });
+      await syncBuildingsFromApi();
+      setNotice("Building updated.");
+    } catch {
+      setNotice("Failed to update building.");
+    }
+  };
+
+  const updateSelectedFloorCapacity = async (floorId: string, capacity: number) => {
+    const normalized = Math.max(0, Math.floor(capacity));
+
+    try {
+      await updateFloor(floorId, { capacity: normalized });
+      await syncBuildingsFromApi();
+      setNotice("Floor capacity updated.");
+    } catch {
+      setNotice("Failed to update floor.");
+    }
+  };
+
+  const updateSelectedSeat = async (
+    seatId: string,
+    input: { label?: string; type?: SeatType; status?: "AVAILABLE" | "OCCUPIED" },
+  ) => {
+    try {
+      await updateSeat(seatId, input);
+      await syncBuildingsFromApi();
+      setNotice("Seat updated.");
+    } catch {
+      setNotice("Failed to update seat.");
+    }
+  };
+
   const openBuildingInfo = () => {
     setBuildingInfoOpen(true);
   };
@@ -621,6 +768,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
     isEditing,
     creationPhase,
     activeTool,
+    activeSeatType,
     draftBuildingFootprint,
     currentBuildingData,
     activeFloorNumber,
@@ -631,6 +779,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
     setActiveFloor,
     setCreationPhase,
     setActiveTool,
+    setActiveSeatType,
     setActiveFloorNumber,
     setDraftBuildingFootprint,
     openBuildingInfo,
@@ -638,6 +787,9 @@ export function MapProvider({ children }: { children: ReactNode }) {
     publishFootprint,
     saveBuildingDesign,
     addSeat,
+    renameSelectedBuilding,
+    updateSelectedFloorCapacity,
+    updateSelectedSeat,
     updateBuildingFootprint,
     deleteLastInterior,
     setNotice,

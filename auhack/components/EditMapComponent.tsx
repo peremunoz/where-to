@@ -11,6 +11,7 @@ import Map, {
   type LayerProps,
   type MapMouseEvent,
   type MapRef,
+  type MapTouchEvent,
 } from "react-map-gl/mapbox";
 import { useMapContext } from "@/context/MapContext";
 import { buildingsToGeoJSON } from "@/lib/campus-data";
@@ -238,7 +239,7 @@ function architectBuildingGeoJSON(footprint: [number, number][] | null, name: st
   } as FeatureCollection;
 }
 
-function seatsGeoJSON(seats: Array<{ id: string; floor: number; coordinates: [number, number]; spaceId: string }>): FeatureCollection {
+function seatsGeoJSON(seats: Array<{ id: string; floor: number; coordinates: [number, number]; type: "TABLE" | "CHAIR" | "SOFA"; spaceId: string }>): FeatureCollection {
   return {
     type: "FeatureCollection",
     features: seats.map((seat) => ({
@@ -247,6 +248,7 @@ function seatsGeoJSON(seats: Array<{ id: string; floor: number; coordinates: [nu
       properties: {
         id: seat.id,
         floor: seat.floor,
+        type: seat.type,
         spaceId: seat.spaceId,
       },
     })),
@@ -322,6 +324,7 @@ function buildingSeatsGeoJSON(
               id: seat.id,
               buildingId: building.id,
               floorNumber,
+              type: seat.type,
               status: seat.status,
               isHoveredFloor,
             },
@@ -355,6 +358,7 @@ export function EditMapComponent() {
   const mapRef = useRef<MapRef | null>(null);
   const drawRef = useRef<MapboxDraw | null>(null);
   const buildingDrawIdRef = useRef<string | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const isHandlingDrawCreateRef = useRef(false);
   const drawCreateHandlerRef = useRef<((event: {
     features?: Array<{
@@ -688,8 +692,11 @@ export function EditMapComponent() {
     clearRecentSavedBuilding();
   }, [buildings, clearRecentSavedBuilding, recentSavedBuildingId]);
 
-  const onMapClick = (event: MapMouseEvent) => {
-    if (role === "admin" && isEditing) {
+  const handleFeatureSelection = (event: {
+    features?: MapMouseEvent["features"];
+    lngLat: { lng: number; lat: number };
+  }) => {
+    if (role === "admin" && isEditing && activeTool !== "none") {
       return;
     }
 
@@ -724,7 +731,50 @@ export function EditMapComponent() {
 
     setSelectedBuildingId(building.id);
     openBuildingInfo();
-    mapRef.current?.flyTo({ center: building.center, zoom: 19, duration: 1200 });
+    mapRef.current?.flyTo({ center: building.center, zoom: 17.2, duration: 1200 });
+  };
+
+  const onMapClick = (event: MapMouseEvent) => {
+    handleFeatureSelection(event);
+  };
+
+  const onMapTouchStart = (event: MapTouchEvent) => {
+    const touch = event.originalEvent.touches[0];
+    if (!touch) {
+      touchStartRef.current = null;
+      return;
+    }
+
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: Date.now(),
+    };
+  };
+
+  const onMapTouchEnd = (event: MapTouchEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+
+    const touch = event.originalEvent.changedTouches[0];
+    if (!start || !touch) {
+      return;
+    }
+
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const distance = Math.hypot(dx, dy);
+    const duration = Date.now() - start.time;
+
+    // Treat only short, small-movement gestures as taps; keep drag/pinch free for camera control.
+    if (distance > 12 || duration > 350) {
+      return;
+    }
+
+    handleFeatureSelection({
+      features: event.features,
+      lngLat: event.lngLat,
+    });
   };
 
   const onMapHover = (event: MapMouseEvent) => {
@@ -796,8 +846,10 @@ export function EditMapComponent() {
       dragRotate={canAdjustCamera}
       touchPitch={canAdjustCamera}
       pitchWithRotate={canAdjustCamera}
-      interactiveLayerIds={isEditing && role === "admin" ? [] : interactiveBuildingLayerIds}
+      interactiveLayerIds={isEditing && role === "admin" && activeTool !== "none" ? [] : interactiveBuildingLayerIds}
       onClick={onMapClick}
+      onTouchStart={onMapTouchStart}
+      onTouchEnd={onMapTouchEnd}
       onMouseMove={onMapHover}
       onMouseLeave={() => {
         setHoverCard(null);
@@ -835,7 +887,14 @@ export function EditMapComponent() {
                 ]}
                 paint={{
                   "circle-color": "#22c55e",
-                  "circle-radius": 4,
+                  "circle-radius": [
+                    "case",
+                    ["==", ["get", "type"], "TABLE"],
+                    6,
+                    ["==", ["get", "type"], "SOFA"],
+                    6.5,
+                    4,
+                  ],
                   "circle-stroke-color": "#ffffff",
                   "circle-stroke-width": 1,
                   "circle-translate": hoveredFloorSeatTranslate,
@@ -851,7 +910,14 @@ export function EditMapComponent() {
                 ]}
                 paint={{
                   "circle-color": "#ef4444",
-                  "circle-radius": 4,
+                  "circle-radius": [
+                    "case",
+                    ["==", ["get", "type"], "TABLE"],
+                    6,
+                    ["==", ["get", "type"], "SOFA"],
+                    6.5,
+                    4,
+                  ],
                   "circle-stroke-color": "#ffffff",
                   "circle-stroke-width": 1,
                   "circle-translate": hoveredFloorSeatTranslate,
@@ -867,7 +933,14 @@ export function EditMapComponent() {
                 ]}
                 paint={{
                   "circle-color": "#f59e0b",
-                  "circle-radius": 4,
+                  "circle-radius": [
+                    "case",
+                    ["==", ["get", "type"], "TABLE"],
+                    6,
+                    ["==", ["get", "type"], "SOFA"],
+                    6.5,
+                    4,
+                  ],
                   "circle-stroke-color": "#ffffff",
                   "circle-stroke-width": 1,
                   "circle-translate": hoveredFloorSeatTranslate,

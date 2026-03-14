@@ -16,6 +16,10 @@ export function getApiBaseUrl(): string {
   return trimTrailingSlash(envBaseUrl);
 }
 
+export function getEventsStreamUrl(): string {
+  return "/api/events/stream";
+}
+
 export interface ApiPoint {
   x: number;
   y: number;
@@ -71,6 +75,16 @@ export interface CreateFloorInput {
   buildingId: string;
 }
 
+export interface UpdateBuildingInput {
+  name?: string;
+  polygon?: ApiPoint[];
+}
+
+export interface UpdateFloorInput {
+  floorNumber?: number;
+  capacity?: number;
+}
+
 export interface CreateSeatInput {
   type: "TABLE" | "CHAIR" | "SOFA";
   label: string;
@@ -78,6 +92,14 @@ export interface CreateSeatInput {
   x?: number;
   y?: number;
   floorId: string;
+}
+
+export interface UpdateSeatInput {
+  type?: "TABLE" | "CHAIR" | "SOFA";
+  label?: string;
+  status?: "AVAILABLE" | "OCCUPIED";
+  x?: number;
+  y?: number;
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -142,6 +164,13 @@ export function createBuilding(input: CreateBuildingInput): Promise<ApiBuilding>
   });
 }
 
+export function updateBuilding(id: string, input: UpdateBuildingInput): Promise<ApiBuilding> {
+  return apiRequest<ApiBuilding>(`/buildings/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export function createFloor(input: CreateFloorInput): Promise<ApiFloor> {
   return apiRequest<ApiFloor>("/floors", {
     method: "POST",
@@ -149,9 +178,23 @@ export function createFloor(input: CreateFloorInput): Promise<ApiFloor> {
   });
 }
 
+export function updateFloor(id: string, input: UpdateFloorInput): Promise<ApiFloor> {
+  return apiRequest<ApiFloor>(`/floors/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export function createSeat(input: CreateSeatInput): Promise<ApiSeat> {
   return apiRequest<ApiSeat>("/seats", {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateSeat(id: string, input: UpdateSeatInput): Promise<ApiSeat> {
+  return apiRequest<ApiSeat>(`/seats/${id}`, {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Square, Trash2, User } from "lucide-react";
+import { MousePointer2, Square, Trash2, User } from "lucide-react";
 import { useMapContext } from "@/context/MapContext";
 
 export function MapToolbar() {
@@ -9,6 +9,7 @@ export function MapToolbar() {
     isEditing,
     creationPhase,
     activeTool,
+    selectedBuilding,
     setActiveTool,
     deleteLastInterior,
   } = useMapContext();
@@ -22,6 +23,15 @@ export function MapToolbar() {
       <div className="flex flex-col gap-2">
         <button
           type="button"
+          onClick={() => setActiveTool("none")}
+          className={`rounded-2xl p-3 transition ${activeTool === "none" ? "bg-slate-900 text-white" : "bg-white/80 text-slate-600 hover:bg-slate-100"}`}
+          title="Select Building"
+        >
+          <MousePointer2 size={18} />
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTool("building")}
           className={`rounded-2xl p-3 transition ${activeTool === "building" ? "bg-[#007AFF] text-white" : "bg-white/80 text-slate-600 hover:bg-slate-100"}`}
           title="Draw Building"
@@ -32,7 +42,7 @@ export function MapToolbar() {
         <button
           type="button"
           onClick={() => setActiveTool("seat")}
-          disabled={creationPhase !== 3}
+          disabled={creationPhase !== 3 && !selectedBuilding}
           className={`rounded-2xl p-3 transition ${activeTool === "seat" ? "bg-[#34C759] text-white" : "bg-white/80 text-slate-600 hover:bg-slate-100"} disabled:cursor-not-allowed disabled:opacity-40`}
           title="Place Seat"
         >

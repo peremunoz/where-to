@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Minus, Plus, UploadCloud } from "lucide-react";
 import { useMapContext } from "@/context/MapContext";
+import type { SeatType } from "@/lib/campus-data";
 
 function ensureFloorCapacities(
   capacities: Record<number, number>,
@@ -25,28 +26,56 @@ export function EditingSidebar() {
     creationPhase,
     draftBuildingFootprint,
     currentBuildingData,
+    selectedBuilding,
+    activeFloor,
     activeFloorNumber,
+    activeSeatType,
+    setActiveSeatType,
+    setActiveFloor,
     setActiveFloorNumber,
+    setSelectedBuildingId,
+    setRole,
+    setEditMode,
+    setCreationPhase,
+    setActiveTool,
     publishFootprint,
     saveBuildingDesign,
+    renameSelectedBuilding,
+    updateSelectedFloorCapacity,
+    updateSelectedSeat,
     notice,
   } = useMapContext();
 
   const [buildingName, setBuildingName] = useState("");
   const [floorCount, setFloorCount] = useState(4);
+  const [buildingNameEdits, setBuildingNameEdits] = useState<Record<string, string>>({});
   const [floorCapacities, setFloorCapacities] = useState<Record<number, number>>({
     1: 0,
     2: 0,
     3: 0,
     4: 0,
   });
+  const [floorCapacityEdits, setFloorCapacityEdits] = useState<Record<string, number>>({});
+  const [seatLabelEdits, setSeatLabelEdits] = useState<Record<string, string>>({});
+  const [seatTypeEdits, setSeatTypeEdits] = useState<Record<string, SeatType>>({});
+  const [seatStatusEdits, setSeatStatusEdits] = useState<Record<string, "AVAILABLE" | "OCCUPIED">>({});
 
-  const showPanel = creationPhase >= 2 && isEditing && role === "admin";
+  const showPanel = isEditing && role === "admin";
 
   const floorOptions = useMemo(() => {
     const totalFloors = currentBuildingData?.totalFloors ?? floorCount;
     return Array.from({ length: totalFloors }, (_, index) => index + 1);
   }, [currentBuildingData?.totalFloors, floorCount]);
+
+  const selectedFloorInExisting = useMemo(
+    () => selectedBuilding?.floors.find((floor) => floor.label === activeFloor) ?? null,
+    [activeFloor, selectedBuilding],
+  );
+
+  const seatsOnSelectedExistingFloor = useMemo(
+    () => selectedFloorInExisting?.rooms.flatMap((room) => room.seats) ?? [],
+    [selectedFloorInExisting],
+  );
 
   if (role !== "admin") {
     return null;
@@ -59,6 +88,33 @@ export function EditingSidebar() {
         <p className="mt-1 text-sm text-slate-500">
           {creationPhase === 2 ? "Phase 2: Data Capture" : "Phase 3: Floor & Interior Design"}
         </p>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedBuildingId(null);
+              setCreationPhase(1);
+              setActiveTool("building");
+            }}
+            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Deselect Building
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditMode(false);
+              setRole("student");
+              setSelectedBuildingId(null);
+              setCreationPhase(1);
+              setActiveTool("none");
+            }}
+            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Student View
+          </button>
+        </div>
 
         {creationPhase === 2 ? (
           <div className="mt-6 space-y-4">
@@ -179,7 +235,19 @@ export function EditingSidebar() {
             </div>
 
             <div className="rounded-2xl border border-white/80 bg-white/80 p-4 text-xs text-slate-600">
-              Use the User tool to place seats for the active floor.
+              <p>Use the User tool to place seats for the active floor.</p>
+              <label className="mt-3 block text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                New Seat Type
+                <select
+                  value={activeSeatType}
+                  onChange={(event) => setActiveSeatType(event.target.value as SeatType)}
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-[#007AFF]/50"
+                >
+                  <option value="CHAIR">Chair</option>
+                  <option value="TABLE">Table</option>
+                  <option value="SOFA">Sofa</option>
+                </select>
+              </label>
             </div>
 
             <button
@@ -190,6 +258,150 @@ export function EditingSidebar() {
               <UploadCloud size={16} />
               Save Building
             </button>
+          </div>
+        ) : null}
+
+        {creationPhase === 1 && !currentBuildingData && selectedBuilding ? (
+          <div className="mt-6 flex-1 space-y-4 overflow-auto pr-1">
+            <div className="rounded-2xl border border-white/80 bg-white/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Edit Building</p>
+              <input
+                value={
+                  selectedBuilding
+                    ? (buildingNameEdits[selectedBuilding.id] ?? selectedBuilding.name)
+                    : ""
+                }
+                onChange={(event) => {
+                  if (!selectedBuilding) {
+                    return;
+                  }
+
+                  setBuildingNameEdits((previous) => ({
+                    ...previous,
+                    [selectedBuilding.id]: event.target.value,
+                  }));
+                }}
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-[#007AFF]/50"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  void renameSelectedBuilding(
+                    selectedBuilding
+                      ? (buildingNameEdits[selectedBuilding.id] ?? selectedBuilding.name)
+                      : "",
+                  )
+                }
+                className="mt-3 w-full rounded-xl bg-[#007AFF] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0062cc]"
+              >
+                Save Building Name
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-white/80 bg-white/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Edit Floors</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {selectedBuilding.floors.map((floor) => (
+                  <button
+                    key={`select-floor-${floor.id}`}
+                    type="button"
+                    onClick={() => setActiveFloor(floor.label)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${activeFloor === floor.label ? "bg-[#007AFF] text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  >
+                    {floor.label}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 space-y-2">
+                {selectedBuilding.floors.map((floor) => (
+                  <div key={floor.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="text-sm font-semibold text-slate-800">Floor {floor.label}</p>
+                    <label className="mt-2 block text-xs text-slate-600">
+                      Capacity
+                      <input
+                        type="number"
+                        min={0}
+                        value={floorCapacityEdits[floor.id] ?? floor.capacity ?? floor.rooms.flatMap((room) => room.seats).length}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setFloorCapacityEdits((previous) => ({
+                            ...previous,
+                            [floor.id]: Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0,
+                          }));
+                        }}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#007AFF]/50"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void updateSelectedFloorCapacity(floor.id, floorCapacityEdits[floor.id] ?? 0)}
+                      className="mt-2 w-full rounded-lg bg-slate-900 px-2 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                    >
+                      Save Floor
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/80 bg-white/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Edit Seats (Selected Floor)</p>
+              <p className="mt-1 text-xs text-slate-500">Floor {activeFloor}</p>
+              <div className="mt-3 space-y-2">
+                {seatsOnSelectedExistingFloor.length === 0 ? (
+                  <p className="text-xs text-slate-500">No seats found on this floor.</p>
+                ) : (
+                  seatsOnSelectedExistingFloor.map((seat) => (
+                    <div key={seat.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                      <input
+                        value={seatLabelEdits[seat.id] ?? seat.sensorId}
+                        onChange={(event) => setSeatLabelEdits((previous) => ({ ...previous, [seat.id]: event.target.value }))}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#007AFF]/50"
+                      />
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <select
+                          value={seatTypeEdits[seat.id] ?? seat.type}
+                          onChange={(event) =>
+                            setSeatTypeEdits((previous) => ({ ...previous, [seat.id]: event.target.value as SeatType }))
+                          }
+                          className="rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#007AFF]/50"
+                        >
+                          <option value="CHAIR">Chair</option>
+                          <option value="TABLE">Table</option>
+                          <option value="SOFA">Sofa</option>
+                        </select>
+                        <select
+                          value={seatStatusEdits[seat.id] ?? (seat.status === "Occupied" ? "OCCUPIED" : "AVAILABLE")}
+                          onChange={(event) =>
+                            setSeatStatusEdits((previous) => ({
+                              ...previous,
+                              [seat.id]: event.target.value as "AVAILABLE" | "OCCUPIED",
+                            }))
+                          }
+                          className="rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-[#007AFF]/50"
+                        >
+                          <option value="AVAILABLE">Available</option>
+                          <option value="OCCUPIED">Occupied</option>
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void updateSelectedSeat(seat.id, {
+                            label: seatLabelEdits[seat.id] ?? seat.sensorId,
+                            type: seatTypeEdits[seat.id] ?? seat.type,
+                            status: seatStatusEdits[seat.id] ?? (seat.status === "Occupied" ? "OCCUPIED" : "AVAILABLE"),
+                          })
+                        }
+                        className="mt-2 w-full rounded-lg bg-slate-900 px-2 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                      >
+                        Save Seat
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         ) : null}
 

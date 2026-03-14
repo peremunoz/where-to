@@ -1,14 +1,74 @@
 "use client";
 
 import { useMemo } from "react";
-import { Building2, CircleOff, DoorOpen, Users, X } from "lucide-react";
+import { Armchair, Building2, Circle, CircleOff, DoorOpen, Table2, Users, X } from "lucide-react";
 import { useMapContext } from "@/context/MapContext";
+import type { Seat, SeatType } from "@/lib/campus-data";
+
+interface SeatSchemePoint {
+  seat: Seat;
+  left: number;
+  top: number;
+}
+
+function toSeatSchemePoints(seats: Seat[]): SeatSchemePoint[] {
+  if (seats.length === 0) {
+    return [];
+  }
+
+  const lngs = seats.map((seat) => seat.coordinates[0]);
+  const lats = seats.map((seat) => seat.coordinates[1]);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const lngSpan = Math.max(maxLng - minLng, 0.000001);
+  const latSpan = Math.max(maxLat - minLat, 0.000001);
+
+  return seats.map((seat) => {
+    const left = ((seat.coordinates[0] - minLng) / lngSpan) * 100;
+    const top = 100 - ((seat.coordinates[1] - minLat) / latSpan) * 100;
+
+    return {
+      seat,
+      left: Math.min(96, Math.max(4, left)),
+      top: Math.min(96, Math.max(4, top)),
+    };
+  });
+}
+
+function seatStatusClass(status: Seat["status"]): string {
+  if (status === "Occupied") {
+    return "bg-rose-500 text-white";
+  }
+
+  if (status === "Maintenance") {
+    return "bg-amber-400 text-slate-900";
+  }
+
+  return "bg-emerald-500 text-white";
+}
+
+function SeatTypeIcon({ type }: { type: SeatType }) {
+  if (type === "TABLE") {
+    return <Table2 size={12} />;
+  }
+
+  if (type === "SOFA") {
+    return <Armchair size={12} />;
+  }
+
+  return <Circle size={12} />;
+}
 
 export function BuildingInfoSidebar() {
   const {
     selectedBuilding,
+    setSelectedBuildingId,
     buildingInfoOpen,
     closeBuildingInfo,
+    activeFloor,
+    setActiveFloor,
     role,
     isEditing,
   } = useMapContext();
@@ -26,6 +86,7 @@ export function BuildingInfoSidebar() {
       const free = seats.filter((seat) => seat.status === "Available").length;
 
       return {
+        floorId: floor.id,
         floorLabel: floor.label,
         rooms: floor.rooms.length,
         total,
@@ -36,6 +97,24 @@ export function BuildingInfoSidebar() {
       };
     });
   }, [selectedBuilding]);
+
+  const selectedFloorScheme = useMemo(() => {
+    if (!selectedBuilding) {
+      return null;
+    }
+
+    const floor = selectedBuilding.floors.find((item) => item.label === activeFloor);
+    if (!floor) {
+      return null;
+    }
+
+    const seats = floor.rooms.flatMap((room) => room.seats);
+    return {
+      label: floor.label,
+      seats,
+      points: toSeatSchemePoints(seats),
+    };
+  }, [activeFloor, selectedBuilding]);
 
   if (role === "admin" && isEditing) {
     return null;
@@ -66,15 +145,69 @@ export function BuildingInfoSidebar() {
             </button>
           </div>
 
+          <div className="mb-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedBuildingId(null);
+                closeBuildingInfo();
+              }}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Deselect Building
+            </button>
+          </div>
+
           <div className="rounded-2xl border border-white/80 bg-white/90 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Selected Building</p>
             <p className="mt-1 text-base font-semibold text-slate-900">{selectedBuilding.name}</p>
             <p className="mt-1 text-xs text-slate-500">{selectedBuilding.floors.length} floors</p>
           </div>
 
+          {selectedFloorScheme ? (
+            <div className="mt-4 rounded-2xl border border-white/80 bg-white/90 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Floor Scheme</p>
+                <p className="text-xs font-semibold text-slate-700">Floor {selectedFloorScheme.label}</p>
+              </div>
+
+              <div className="mb-3 flex flex-wrap gap-2">
+                {selectedBuilding.floors.map((floor) => (
+                  <button
+                    key={`info-floor-${floor.id}`}
+                    type="button"
+                    onClick={() => setActiveFloor(floor.label)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${activeFloor === floor.label ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  >
+                    {floor.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative h-44 overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100">
+                {selectedFloorScheme.points.map(({ seat, left, top }) => (
+                  <div
+                    key={seat.id}
+                    className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full p-1.5 shadow ${seatStatusClass(seat.status)}`}
+                    style={{ left: `${left}%`, top: `${top}%` }}
+                    title={`${seat.sensorId} · ${seat.type} · ${seat.status}`}
+                  >
+                    <SeatTypeIcon type={seat.type} />
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-600">
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />Available</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" />Occupied</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" />Maintenance</span>
+              </div>
+            </div>
+          ) : null}
+
           <div className="mt-4 flex-1 space-y-3 overflow-auto pr-1">
             {floorStats.map((floor) => (
-              <div key={floor.floorLabel} className="rounded-2xl border border-white/80 bg-white/90 p-4">
+              <div key={floor.floorId} className="rounded-2xl border border-white/80 bg-white/90 p-4">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-sm font-semibold text-slate-900">Floor {floor.floorLabel}</p>
                   <p className="text-xs font-semibold text-slate-600">{floor.occupancy}% occupied</p>

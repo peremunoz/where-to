@@ -1,4 +1,6 @@
 import { IsInt, IsNotEmpty, IsOptional, IsUUID, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ValidateNested } from 'class-validator';
 import { PointDto } from '../../common/dto/point.dto.js';
 import { IsPolygonCollection } from '../../common/validators/geometry.validators.js';
 
@@ -19,5 +21,7 @@ export class CreateFloorDto {
   /** Blocked/unavailable areas — array of polygons, each polygon is an array of {x, y} points */
   @IsOptional()
   @IsPolygonCollection()
+  @ValidateNested({ each: true })
+  @Type(() => PointDto)
   blockedAreas?: PointDto[][];
 }
