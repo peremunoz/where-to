@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useEffect,
   useContext,
   useMemo,
@@ -17,6 +18,16 @@ import {
   type Seat,
   findBuildingById,
 } from "@/lib/campus-data";
+import {
+  createBuilding,
+  createFloor,
+  createSeat,
+  getBuildings,
+  HARDCODED_INSTITUTION_ID,
+  type ApiBuildingWithCapacity,
+  type ApiPoint,
+  type ApiSeat,
+} from "@/lib/api";
 
 export type UserRole = "admin" | "student";
 export type ArchitectTool = "none" | "building" | "seat";
@@ -35,6 +46,7 @@ export interface CurrentBuildingData {
   name: string;
   totalFloors: number;
   footprint: [number, number][];
+  floorCapacities: Record<number, number>;
   seats: ArchitectSeat[];
 }
 
@@ -65,8 +77,8 @@ interface MapContextValue {
   setDraftBuildingFootprint: (polygon: [number, number][]) => void;
   openBuildingInfo: () => void;
   closeBuildingInfo: () => void;
-  publishFootprint: (input: { name: string; totalFloors: number }) => void;
-  saveBuildingDesign: () => void;
+  publishFootprint: (input: { name: string; totalFloors: number; floorCapacities: Record<number, number> }) => void;
+  saveBuildingDesign: () => Promise<void>;
   addSeat: (input: { coordinates: [number, number]; sensorId?: string }) => void;
   updateBuildingFootprint: (polygon: [number, number][]) => void;
   deleteLastInterior: () => void;
@@ -108,65 +120,158 @@ function polygonCenter(points: [number, number][]): [number, number] {
   return [lngSum / uniquePoints.length, latSum / uniquePoints.length];
 }
 
-function normalizeBuildingId(name: string): string {
-  const cleaned = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+function ensureClosedRing(points: [number, number][]): [number, number][] {
+  if (points.length < 3) {
+    return points;
+  }
 
-  return cleaned || `building-${Date.now()}`;
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (first[0] === last[0] && first[1] === last[1]) {
+    return points;
+  }
+
+  return [...points, first];
 }
 
-function createBuildingFromDraft(draft: CurrentBuildingData): Building {
-  const id = normalizeBuildingId(draft.name);
-  const center = polygonCenter(draft.footprint);
+function apiPointToCoordinates(point: unknown): [number, number] | null {
+  if (Array.isArray(point) && point.length >= 2) {
+    const lng = Number(point[0]);
+    const lat = Number(point[1]);
+    if (Number.isFinite(lng) && Number.isFinite(lat)) {
+      return [lng, lat];
+    }
+    return null;
+  }
 
-  const floors: Floor[] = Array.from({ length: draft.totalFloors }, (_, index) => {
-    const floorNumber = index + 1;
-    const floorLabel = floorNumberToLabel(floorNumber);
-    const floorSeats: Seat[] = draft.seats
-      .filter((seat) => seat.floor === floorNumber)
-      .map((seat) => ({
-        id: seat.id,
-        sensorId: seat.sensorId,
-        status: "Available",
+  if (point && typeof point === "object" && "x" in point && "y" in point) {
+    const maybePoint = point as ApiPoint;
+    const lng = Number(maybePoint.x);
+    const lat = Number(maybePoint.y);
+    if (Number.isFinite(lng) && Number.isFinite(lat)) {
+      return [lng, lat];
+    }
+  }
+
+  return null;
+}
+
+function normalizePolygonForApi(points: Array<[number, number] | ApiPoint | unknown>): ApiPoint[] {
+  const normalized: ApiPoint[] = [];
+
+  for (const point of points) {
+    if (Array.isArray(point) && point.length >= 2) {
+      const x = Number(point[0]);
+      const y = Number(point[1]);
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        normalized.push({ x, y });
+      }
+      continue;
+    }
+
+    if (point && typeof point === "object" && "x" in point && "y" in point) {
+      const candidate = point as ApiPoint;
+      const x = Number(candidate.x);
+      const y = Number(candidate.y);
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        normalized.push({ x, y });
+      }
+    }
+  }
+
+  return normalized;
+}
+
+function mapApiSeatStatus(status: ApiSeat["status"]): Seat["status"] {
+  if (status === "AVAILABLE") {
+    return "Available";
+  }
+
+  if (status === "OCCUPIED") {
+    return "Occupied";
+  }
+
+  return "Maintenance";
+}
+
+function fallbackPolygonFromSeats(seatCoordinates: [number, number][]): [number, number][] {
+  const center = polygonCenter(seatCoordinates);
+  const [lng, lat] = center;
+  return [
+    [lng - 0.0002, lat - 0.0002],
+    [lng + 0.0002, lat - 0.0002],
+    [lng + 0.0002, lat + 0.0002],
+    [lng - 0.0002, lat + 0.0002],
+    [lng - 0.0002, lat - 0.0002],
+  ];
+}
+
+function mapApiBuildingToBuilding(apiBuilding: ApiBuildingWithCapacity): Building {
+  const allSeatCoordinates = apiBuilding.floors
+    .flatMap((floor) => floor.seats ?? [])
+    .filter((seat) => typeof seat.x === "number" && typeof seat.y === "number")
+    .map((seat) => [seat.x as number, seat.y as number] as [number, number]);
+
+  const sourcePolygon = (apiBuilding.polygon ?? [])
+    .map(apiPointToCoordinates)
+    .filter((point): point is [number, number] => point !== null);
+  const polygon =
+    sourcePolygon.length >= 3
+      ? ensureClosedRing(sourcePolygon)
+      : fallbackPolygonFromSeats(allSeatCoordinates.length > 0 ? allSeatCoordinates : [[10.2039, 56.1712]]);
+
+  const center = polygonCenter(polygon);
+
+  const floors: Floor[] = [...apiBuilding.floors]
+    .sort((a, b) => a.floorNumber - b.floorNumber)
+    .map((apiFloor) => {
+      const floorNumber = apiFloor.floorNumber;
+      const floorLabel = floorNumberToLabel(floorNumber);
+      const floorSeats: Seat[] = [...(apiFloor.seats ?? [])]
+        .sort((a, b) => a.label.localeCompare(b.label))
+        .map((seat) => ({
+          id: seat.id,
+          sensorId: seat.label,
+          status: mapApiSeatStatus(seat.status),
+          floor: floorLabel,
+          coordinates:
+            typeof seat.x === "number" && typeof seat.y === "number"
+              ? [seat.x, seat.y]
+              : center,
+        }));
+
+      const floorRoom: Room = {
+        id: `${apiBuilding.id}-f${floorNumber}-room`,
+        name: `Level ${floorNumber} Workspace`,
         floor: floorLabel,
-        coordinates: seat.coordinates,
-      }));
+        polygon,
+        seats: floorSeats,
+      };
 
-    const floorRoom: Room = {
-      id: `${id}-f${floorNumber}-room`,
-      name: `Level ${floorNumber} Workspace`,
-      floor: floorLabel,
-      polygon: draft.footprint,
-      seats: floorSeats,
-    };
-
-    return {
-      id: `${id}-f${floorNumber}`,
-      label: floorLabel,
-      rooms: [floorRoom],
-    };
-  });
+      return {
+        id: apiFloor.id,
+        label: floorLabel,
+        rooms: [floorRoom],
+      };
+    });
 
   return {
-    id,
-    name: draft.name,
+    id: apiBuilding.id,
+    name: apiBuilding.name,
     center,
-    polygon: draft.footprint,
+    polygon,
     floors,
     isCustom: true,
   };
 }
 
+function cloneSampleBuildings(): Building[] {
+  return JSON.parse(JSON.stringify(CAMPUS_DATA.buildings)) as Building[];
+}
+
 export function MapProvider({ children }: { children: ReactNode }) {
-  const [buildings, setBuildings] = useState<Building[]>(() =>
-    JSON.parse(JSON.stringify(CAMPUS_DATA.buildings)) as Building[],
-  );
-  const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(
-    CAMPUS_DATA.buildings[0]?.id ?? null,
-  );
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [activeFloor, setActiveFloor] = useState<FloorLabel>(DEFAULT_FLOOR);
   const [role, setRoleState] = useState<UserRole>("student");
   const [editMode, setEditModeState] = useState(false);
@@ -187,6 +292,50 @@ export function MapProvider({ children }: { children: ReactNode }) {
     () => findBuildingById(buildings, selectedBuildingId),
     [buildings, selectedBuildingId],
   );
+
+  const syncBuildingsFromApi = useCallback(async () => {
+    const apiBuildings = await getBuildings();
+    const nextBuildings = apiBuildings.map(mapApiBuildingToBuilding);
+
+    setBuildings(nextBuildings);
+    setSelectedBuildingId((previous) => {
+      if (previous && nextBuildings.some((building) => building.id === previous)) {
+        return previous;
+      }
+
+      return nextBuildings[0]?.id ?? null;
+    });
+
+    return nextBuildings;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const synced = await syncBuildingsFromApi();
+        if (!cancelled && synced.length === 0) {
+          setNotice("No buildings found in the API yet.");
+        }
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        const fallbackBuildings = cloneSampleBuildings();
+        setBuildings(fallbackBuildings);
+        setSelectedBuildingId(fallbackBuildings[0]?.id ?? null);
+        setNotice("API unavailable. Showing local sample data.");
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [syncBuildingsFromApi]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -211,10 +360,16 @@ export function MapProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    setRoleState("student");
-    setEditModeState(false);
-    setActiveTool("none");
-    setNotice("Admin mode is only available on desktop.");
+    const timeoutId = window.setTimeout(() => {
+      setRoleState("student");
+      setEditModeState(false);
+      setActiveTool("none");
+      setNotice("Admin mode is only available on desktop.");
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [isMobileViewport, role]);
 
   const setRole = (nextRole: UserRole) => {
@@ -270,7 +425,15 @@ export function MapProvider({ children }: { children: ReactNode }) {
     setActiveTool("building");
   };
 
-  const publishFootprint = ({ name, totalFloors }: { name: string; totalFloors: number }) => {
+  const publishFootprint = ({
+    name,
+    totalFloors,
+    floorCapacities,
+  }: {
+    name: string;
+    totalFloors: number;
+    floorCapacities: Record<number, number>;
+  }) => {
     if (!draftBuildingFootprint || draftBuildingFootprint.length < 4) {
       setNotice("Draw a valid building polygon before publishing.");
       return;
@@ -284,6 +447,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
       name: buildingName,
       totalFloors: floors,
       footprint: draftBuildingFootprint,
+      floorCapacities,
       seats: [],
     });
 
@@ -352,29 +516,84 @@ export function MapProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const saveBuildingDesign = () => {
+  const saveBuildingDesign = async () => {
     if (!currentBuildingData) {
       setNotice("No building design to save yet.");
       return;
     }
 
-    const savedBuilding = createBuildingFromDraft(currentBuildingData);
+    try {
+      setNotice("Saving building to API...");
 
-    setBuildings((previous) => {
-      const withoutExisting = previous.filter((building) => building.id !== savedBuilding.id);
-      return [...withoutExisting, savedBuilding];
-    });
+      const polygonForApi = normalizePolygonForApi(currentBuildingData.footprint);
+      if (polygonForApi.length < 3) {
+        setNotice("Cannot save building: polygon coordinates are invalid.");
+        return;
+      }
 
-    setSelectedBuildingId(savedBuilding.id);
-    setRecentSavedBuildingId(savedBuilding.id);
-    setDraftBuildingFootprintState(null);
-    setCurrentBuildingData(null);
-    setCreationPhase(1);
-    setActiveFloorNumber(1);
-    setActiveTool("none");
-    setEditModeState(false);
-    setBuildingInfoOpen(true);
-    setNotice(`Saved ${savedBuilding.name}. Switched to map view.`);
+      const savedBuilding = await createBuilding({
+        name: currentBuildingData.name,
+        institutionId: HARDCODED_INSTITUTION_ID,
+        polygon: polygonForApi,
+      });
+
+      const seatsPerFloor = currentBuildingData.seats.reduce<Record<number, number>>((accumulator, seat) => {
+        accumulator[seat.floor] = (accumulator[seat.floor] ?? 0) + 1;
+        return accumulator;
+      }, {});
+
+      const savedFloors = await Promise.all(
+        Array.from({ length: currentBuildingData.totalFloors }, (_, index) => {
+          const floorNumber = index + 1;
+          const configuredCapacity = currentBuildingData.floorCapacities[floorNumber];
+          const normalizedCapacity = Number.isFinite(configuredCapacity)
+            ? Math.max(0, Math.floor(configuredCapacity))
+            : seatsPerFloor[floorNumber] ?? 0;
+
+          return createFloor({
+            floorNumber,
+            capacity: normalizedCapacity,
+            buildingId: savedBuilding.id,
+          });
+        }),
+      );
+
+      const floorIdByNumber = new Map(savedFloors.map((floor) => [floor.floorNumber, floor.id]));
+
+      await Promise.all(
+        currentBuildingData.seats.map((seat, index) => {
+          const floorId = floorIdByNumber.get(seat.floor);
+          if (!floorId) {
+            return Promise.resolve();
+          }
+
+          const label = seat.sensorId?.trim() || `Seat ${seat.floor}-${index + 1}`;
+
+          return createSeat({
+            type: "CHAIR",
+            label,
+            status: "AVAILABLE",
+            x: seat.coordinates[0],
+            y: seat.coordinates[1],
+            floorId,
+          });
+        }),
+      );
+
+      await syncBuildingsFromApi();
+      setSelectedBuildingId(savedBuilding.id);
+      setRecentSavedBuildingId(savedBuilding.id);
+      setDraftBuildingFootprintState(null);
+      setCurrentBuildingData(null);
+      setCreationPhase(1);
+      setActiveFloorNumber(1);
+      setActiveTool("none");
+      setEditModeState(false);
+      setBuildingInfoOpen(true);
+      setNotice(`Saved ${currentBuildingData.name}. Switched to map view.`);
+    } catch {
+      setNotice("Failed to save building to API. Check that backend is running.");
+    }
   };
 
   const clearRecentSavedBuilding = () => {

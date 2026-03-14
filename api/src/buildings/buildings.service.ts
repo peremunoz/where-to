@@ -1,10 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import { Building } from './building.entity.js';
 import { CreateBuildingDto } from './dto/create-building.dto.js';
 import { UpdateBuildingDto } from './dto/update-building.dto.js';
 import { RealtimeEventsService } from '../realtime/realtime-events.service.js';
+import type { Point } from '../common/interfaces/point.interface.js';
 
 @Injectable()
 export class BuildingsService {
@@ -14,8 +19,75 @@ export class BuildingsService {
     private readonly realtimeEventsService: RealtimeEventsService,
   ) {}
 
+  private normalizePolygonInput(polygon: unknown): Point[] | null {
+    if (!Array.isArray(polygon)) {
+      return null;
+    }
+
+    const normalized = polygon
+      .map((point): Point | null => {
+        if (Array.isArray(point) && point.length >= 2) {
+          const x = Number(point[0]);
+          const y = Number(point[1]);
+          if (Number.isFinite(x) && Number.isFinite(y)) {
+            return { x, y };
+          }
+          return null;
+        }
+
+        if (
+          point &&
+          typeof point === 'object' &&
+          'x' in point &&
+          'y' in point
+        ) {
+          const raw = point as { x: unknown; y: unknown };
+          const x = Number(raw.x);
+          const y = Number(raw.y);
+          if (Number.isFinite(x) && Number.isFinite(y)) {
+            return { x, y };
+          }
+        }
+
+        return null;
+      })
+      .filter((point): point is Point => point !== null);
+
+    if (normalized.length === 0) {
+      return null;
+    }
+
+    if (normalized.length < 3) {
+      throw new BadRequestException(
+        'polygon must contain at least 3 valid points',
+      );
+    }
+
+    return normalized;
+  }
+
+  private normalizeCreateDto(dto: CreateBuildingDto): CreateBuildingDto {
+    const normalizedPolygon = this.normalizePolygonInput(dto.polygon);
+    return {
+      ...dto,
+      polygon: normalizedPolygon,
+    };
+  }
+
+  private normalizeUpdateDto(dto: UpdateBuildingDto): UpdateBuildingDto {
+    if (!Object.prototype.hasOwnProperty.call(dto, 'polygon')) {
+      return dto;
+    }
+
+    return {
+      ...dto,
+      polygon: this.normalizePolygonInput(dto.polygon),
+    };
+  }
+
   async create(dto: CreateBuildingDto): Promise<Building> {
-    const building = this.buildingRepo.create(dto);
+    const normalizedDto = this.normalizeCreateDto(dto);
+    const building = this.buildingRepo.create(normalizedDto);
     const saved = await this.buildingRepo.save(building);
 
     this.realtimeEventsService.publish({
@@ -78,7 +150,8 @@ export class BuildingsService {
 
   async update(id: string, dto: UpdateBuildingDto): Promise<Building> {
     const building = await this.findOneEntity(id);
-    Object.assign(building, dto);
+    const normalizedDto = this.normalizeUpdateDto(dto);
+    Object.assign(building, normalizedDto);
     const saved = await this.buildingRepo.save(building);
 
     this.realtimeEventsService.publish({

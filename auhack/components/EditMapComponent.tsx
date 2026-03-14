@@ -5,13 +5,11 @@ import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import type { FeatureCollection } from "geojson";
 import Map, {
   Layer,
-  Marker,
   NavigationControl,
   Popup,
   Source,
   type LayerProps,
   type MapMouseEvent,
-  type ViewStateChangeEvent,
   type MapRef,
 } from "react-map-gl/mapbox";
 import { useMapContext } from "@/context/MapContext";
@@ -24,6 +22,13 @@ interface HoverCard {
   name: string;
   occupancy: number;
 }
+
+interface HoveredFloor {
+  buildingId: string;
+  floorNumber: number;
+}
+
+const FLOOR_HEIGHT = 4.5;
 
 const buildingFillLayer: LayerProps = {
   id: "building-fill",
@@ -59,24 +64,79 @@ const buildingOutlineLayer: LayerProps = {
   },
 };
 
-const buildingExtrusionLayer: LayerProps = {
-  id: "building-extrusion",
+const floorExtrusionLayer: LayerProps = {
+  id: "floor-extrusion",
   type: "fill-extrusion",
-  filter: ["==", ["get", "type"], "building"],
+  filter: ["==", ["coalesce", ["get", "isAboveSelected"], 0], 0],
   paint: {
     "fill-extrusion-color": [
-      "case",
-      ["boolean", ["get", "isCustom"], false],
-      "#7CCBFF",
-      "#F3F4F6",
+      "interpolate",
+      ["linear"],
+      ["coalesce", ["get", "occupancy"], 0],
+      0,
+      "#22c55e",
+      40,
+      "#84cc16",
+      70,
+      "#f59e0b",
+      100,
+      "#ef4444",
     ],
-    "fill-extrusion-base": 0,
-    "fill-extrusion-height": ["*", ["coalesce", ["get", "floorCount"], 1], 4.5],
-    "fill-extrusion-opacity": 0.9,
+    "fill-extrusion-base": ["*", ["-", ["coalesce", ["get", "floorNumber"], 1], 1], FLOOR_HEIGHT],
+    "fill-extrusion-height": ["*", ["coalesce", ["get", "floorNumber"], 1], FLOOR_HEIGHT],
+    "fill-extrusion-opacity": 0.86,
     "fill-extrusion-height-transition": {
       duration: 1000,
       delay: 0,
     },
+  },
+};
+
+const floorExtrusionDimmedLayer: LayerProps = {
+  id: "floor-extrusion-dimmed",
+  type: "fill-extrusion",
+  filter: ["==", ["coalesce", ["get", "isAboveSelected"], 0], 1],
+  paint: {
+    "fill-extrusion-color": "#f8fafc",
+    "fill-extrusion-base": ["*", ["-", ["coalesce", ["get", "floorNumber"], 1], 1], FLOOR_HEIGHT],
+    "fill-extrusion-height": ["*", ["coalesce", ["get", "floorNumber"], 1], FLOOR_HEIGHT],
+    "fill-extrusion-opacity": 0.28,
+  },
+};
+
+const floorExtrusionHoveredLayer: LayerProps = {
+  id: "floor-extrusion-hovered",
+  type: "fill-extrusion",
+  filter: ["==", ["coalesce", ["get", "isHoveredFloor"], 0], 1],
+  paint: {
+    "fill-extrusion-color": [
+      "interpolate",
+      ["linear"],
+      ["coalesce", ["get", "occupancy"], 0],
+      0,
+      "#22c55e",
+      40,
+      "#84cc16",
+      70,
+      "#f59e0b",
+      100,
+      "#ef4444",
+    ],
+    "fill-extrusion-base": ["*", ["-", ["coalesce", ["get", "floorNumber"], 1], 1], FLOOR_HEIGHT],
+    "fill-extrusion-height": ["*", ["coalesce", ["get", "floorNumber"], 1], FLOOR_HEIGHT],
+    "fill-extrusion-opacity": 0.98,
+  },
+};
+
+const floorRoofHighlightLayer: LayerProps = {
+  id: "floor-roof-highlight",
+  type: "fill-extrusion",
+  filter: ["==", ["coalesce", ["get", "isHoveredFloor"], 0], 1],
+  paint: {
+    "fill-extrusion-color": "#bfdbfe",
+    "fill-extrusion-base": ["*", ["coalesce", ["get", "floorNumber"], 1], FLOOR_HEIGHT],
+    "fill-extrusion-height": ["+", ["*", ["coalesce", ["get", "floorNumber"], 1], FLOOR_HEIGHT], 0.35],
+    "fill-extrusion-opacity": 0.65,
   },
 };
 
@@ -123,6 +183,19 @@ function floorMatchFilter(floor: number) {
 
 function floorNonMatchFilter(floor: number) {
   return ["!=", ["get", "floor"], floor];
+}
+
+function floorLabelToNumber(label: string): number {
+  if (label === "G") {
+    return 1;
+  }
+
+  const parsed = Number(label);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return parsed + 1;
 }
 
 function asRing(coords: unknown): [number, number][] | null {
@@ -180,6 +253,85 @@ function seatsGeoJSON(seats: Array<{ id: string; floor: number; coordinates: [nu
   } as FeatureCollection;
 }
 
+function buildingFloorsGeoJSON(
+  buildings: ReturnType<typeof useMapContext>["buildings"],
+  selectedFloor: HoveredFloor | null,
+): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: buildings.flatMap((building) =>
+      building.floors.map((floor) => {
+        const floorNumber = floorLabelToNumber(floor.label);
+        const seats = floor.rooms.flatMap((room) => room.seats);
+        const total = seats.length;
+        const occupied = seats.filter((seat) => seat.status === "Occupied").length;
+        const free = seats.filter((seat) => seat.status === "Available").length;
+        const occupancy = total > 0 ? Math.round((occupied / total) * 100) : 0;
+        const isHoveredFloor =
+          selectedFloor?.buildingId === building.id && selectedFloor.floorNumber === floorNumber ? 1 : 0;
+        const isHoveredBuilding = selectedFloor?.buildingId === building.id ? 1 : 0;
+        const isAboveSelected =
+          selectedFloor?.buildingId === building.id && floorNumber > selectedFloor.floorNumber ? 1 : 0;
+
+        return {
+          type: "Feature" as const,
+          geometry: {
+            type: "Polygon" as const,
+            coordinates: [building.polygon],
+          },
+          properties: {
+            id: `${building.id}-f${floorNumber}`,
+            buildingId: building.id,
+            buildingName: building.name,
+            floorNumber,
+            floorLabel: floor.label,
+            occupancy,
+            total,
+            free,
+            occupied,
+            isHoveredFloor,
+            isHoveredBuilding,
+            isAboveSelected,
+          },
+        };
+      }),
+    ),
+  } as FeatureCollection;
+}
+
+function buildingSeatsGeoJSON(
+  buildings: ReturnType<typeof useMapContext>["buildings"],
+  selectedFloor: HoveredFloor | null,
+): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: buildings.flatMap((building) =>
+      building.floors.flatMap((floor) => {
+        const floorNumber = floorLabelToNumber(floor.label);
+        const isHoveredFloor =
+          selectedFloor?.buildingId === building.id && selectedFloor.floorNumber === floorNumber ? 1 : 0;
+
+        return floor.rooms.flatMap((room) =>
+          room.seats.map((seat) => ({
+            type: "Feature" as const,
+            geometry: {
+              type: "Point" as const,
+              coordinates: seat.coordinates,
+            },
+            properties: {
+              id: seat.id,
+              buildingId: building.id,
+              floorNumber,
+              status: seat.status,
+              isHoveredFloor,
+            },
+          })),
+        );
+      }),
+    ),
+  } as FeatureCollection;
+}
+
 export function EditMapComponent() {
   const {
     buildings,
@@ -196,8 +348,8 @@ export function EditMapComponent() {
     addSeat,
     setSelectedBuildingId,
     openBuildingInfo,
+    buildingInfoOpen,
     clearRecentSavedBuilding,
-    activeFloor,
   } = useMapContext();
 
   const mapRef = useRef<MapRef | null>(null);
@@ -212,7 +364,7 @@ export function EditMapComponent() {
   }) => void) | null>(null);
 
   const [hoverCard, setHoverCard] = useState<HoverCard | null>(null);
-  const [mapZoom, setMapZoom] = useState(15.2);
+  const [selectedFloor, setSelectedFloor] = useState<HoveredFloor | null>(null);
   const [is3DMode, setIs3DMode] = useState(false);
   const [hasMapLoaded, setHasMapLoaded] = useState(false);
 
@@ -253,14 +405,19 @@ export function EditMapComponent() {
     [currentBuildingData?.seats],
   );
 
-  const availableSeats = useMemo(
-    () =>
-      buildings
-        .flatMap((building) => building.floors)
-        .flatMap((floor) => floor.rooms)
-        .flatMap((room) => room.seats)
-        .filter((seat) => seat.floor === activeFloor && seat.status === "Available"),
-    [activeFloor, buildings],
+  const buildingFloorsData = useMemo(
+    () => buildingFloorsGeoJSON(buildings, selectedFloor),
+    [buildings, selectedFloor],
+  );
+
+  const buildingSeatsData = useMemo(
+    () => buildingSeatsGeoJSON(buildings, selectedFloor),
+    [buildings, selectedFloor],
+  );
+
+  const hoveredFloorSeatTranslate: [number, number] = useMemo(
+    () => [0, selectedFloor ? selectedFloor.floorNumber * -6 : 0],
+    [selectedFloor],
   );
 
   const togglePerspective = useCallback(() => {
@@ -497,12 +654,18 @@ export function EditMapComponent() {
   const canAdjustCamera = true;
   const shouldRender3D = is3DMode || !isEditing;
   const interactiveBuildingLayerIds = shouldRender3D
-    ? ["building-fill", "building-extrusion", "active-floor-plate"]
+    ? ["building-fill", "floor-extrusion", "floor-roof-highlight", "active-floor-plate"]
     : ["building-fill"];
 
   useEffect(() => {
     applyDrawMode();
   }, [applyDrawMode]);
+
+  useEffect(() => {
+    if (!buildingInfoOpen) {
+      setSelectedFloor(null);
+    }
+  }, [buildingInfoOpen]);
 
   useEffect(() => {
     if (!recentSavedBuildingId) {
@@ -532,16 +695,31 @@ export function EditMapComponent() {
 
     const buildingFeature = event.features?.find((feature) => {
       const layerId = feature.layer?.id;
-      return layerId === "building-fill" || layerId === "building-extrusion" || layerId === "active-floor-plate";
+      return (
+        layerId === "building-fill" ||
+        layerId === "floor-extrusion" ||
+        layerId === "floor-roof-highlight" ||
+        layerId === "active-floor-plate"
+      );
     });
-    const featureId = buildingFeature?.properties?.id as string | undefined;
-    if (!featureId) {
+    const buildingId =
+      (buildingFeature?.properties?.buildingId as string | undefined) ??
+      (buildingFeature?.properties?.id as string | undefined);
+
+    if (!buildingId) {
       return;
     }
 
-    const building = buildings.find((item) => item.id === featureId);
+    const building = buildings.find((item) => item.id === buildingId);
     if (!building) {
       return;
+    }
+
+    const clickedFloorNumber = Number(buildingFeature?.properties?.floorNumber);
+    if (Number.isFinite(clickedFloorNumber) && clickedFloorNumber > 0) {
+      setSelectedFloor({ buildingId: building.id, floorNumber: clickedFloorNumber });
+    } else {
+      setSelectedFloor(null);
     }
 
     setSelectedBuildingId(building.id);
@@ -550,22 +728,35 @@ export function EditMapComponent() {
   };
 
   const onMapHover = (event: MapMouseEvent) => {
-    const buildingFeature = event.features?.find((feature) => feature.layer?.id === "building-fill");
-    if (!buildingFeature) {
-      setHoverCard(null);
+    const floorFeature = event.features?.find(
+      (feature) => feature.layer?.id === "floor-extrusion" || feature.layer?.id === "floor-roof-highlight",
+    );
+
+    if (floorFeature?.properties?.buildingId && floorFeature?.properties?.floorNumber) {
+      setHoverCard({
+        lng: event.lngLat.lng,
+        lat: event.lngLat.lat,
+        name: `${String(floorFeature.properties.buildingName ?? "Building")} · Floor ${String(
+          floorFeature.properties.floorLabel ?? floorFeature.properties.floorNumber,
+        )}`,
+        occupancy: Number(floorFeature.properties.occupancy ?? 0),
+      });
+
       return;
     }
 
-    setHoverCard({
-      lng: event.lngLat.lng,
-      lat: event.lngLat.lat,
-      name: String(buildingFeature.properties?.name ?? "Building"),
-      occupancy: Number(buildingFeature.properties?.occupancy ?? 0),
-    });
-  };
+    const buildingFeature = event.features?.find((feature) => feature.layer?.id === "building-fill");
+    if (buildingFeature) {
+      setHoverCard({
+        lng: event.lngLat.lng,
+        lat: event.lngLat.lat,
+        name: String(buildingFeature.properties?.name ?? "Building"),
+        occupancy: Number(buildingFeature.properties?.occupancy ?? 0),
+      });
+      return;
+    }
 
-  const onMapMove = (event: ViewStateChangeEvent) => {
-    setMapZoom(event.viewState.zoom);
+    setHoverCard(null);
   };
 
   useEffect(() => {
@@ -608,8 +799,9 @@ export function EditMapComponent() {
       interactiveLayerIds={isEditing && role === "admin" ? [] : interactiveBuildingLayerIds}
       onClick={onMapClick}
       onMouseMove={onMapHover}
-      onMouseLeave={() => setHoverCard(null)}
-      onMove={onMapMove}
+      onMouseLeave={() => {
+        setHoverCard(null);
+      }}
       onLoad={handleMapLoad}
       onIdle={handleMapIdle}
     >
@@ -620,8 +812,69 @@ export function EditMapComponent() {
           <Source id="buildings" type="geojson" data={baseBuildingsData}>
             <Layer {...buildingFillLayer} />
             <Layer {...buildingOutlineLayer} />
-            {shouldRender3D ? <Layer {...buildingExtrusionLayer} /> : null}
           </Source>
+
+          {shouldRender3D ? (
+            <Source id="building-floors" type="geojson" data={buildingFloorsData}>
+              <Layer {...floorExtrusionLayer} />
+              <Layer {...floorExtrusionDimmedLayer} />
+              <Layer {...floorExtrusionHoveredLayer} />
+              <Layer {...floorRoofHighlightLayer} />
+            </Source>
+          ) : null}
+
+          {shouldRender3D ? (
+            <Source id="building-floor-seats" type="geojson" data={buildingSeatsData}>
+              <Layer
+                id="building-seat-available"
+                type="circle"
+                filter={[
+                  "all",
+                  ["==", ["coalesce", ["get", "isHoveredFloor"], 0], 1],
+                  ["==", ["get", "status"], "Available"],
+                ]}
+                paint={{
+                  "circle-color": "#22c55e",
+                  "circle-radius": 4,
+                  "circle-stroke-color": "#ffffff",
+                  "circle-stroke-width": 1,
+                  "circle-translate": hoveredFloorSeatTranslate,
+                }}
+              />
+              <Layer
+                id="building-seat-occupied"
+                type="circle"
+                filter={[
+                  "all",
+                  ["==", ["coalesce", ["get", "isHoveredFloor"], 0], 1],
+                  ["==", ["get", "status"], "Occupied"],
+                ]}
+                paint={{
+                  "circle-color": "#ef4444",
+                  "circle-radius": 4,
+                  "circle-stroke-color": "#ffffff",
+                  "circle-stroke-width": 1,
+                  "circle-translate": hoveredFloorSeatTranslate,
+                }}
+              />
+              <Layer
+                id="building-seat-maintenance"
+                type="circle"
+                filter={[
+                  "all",
+                  ["==", ["coalesce", ["get", "isHoveredFloor"], 0], 1],
+                  ["==", ["get", "status"], "Maintenance"],
+                ]}
+                paint={{
+                  "circle-color": "#f59e0b",
+                  "circle-radius": 4,
+                  "circle-stroke-color": "#ffffff",
+                  "circle-stroke-width": 1,
+                  "circle-translate": hoveredFloorSeatTranslate,
+                }}
+              />
+            </Source>
+          ) : null}
 
           {architectBuildingData.features.length > 0 ? (
             <Source id="architect-building" type="geojson" data={architectBuildingData}>
@@ -663,12 +916,6 @@ export function EditMapComponent() {
           </Source>
         </>
       ) : null}
-
-      {availableSeats.map((seat) => (
-        <Marker key={`pulse-${seat.id}`} longitude={seat.coordinates[0]} latitude={seat.coordinates[1]}>
-          <span className="block h-3 w-3 rounded-full bg-[#34C759]/40 ring-2 ring-[#34C759]/30 animate-pulse" />
-        </Marker>
-      ))}
 
       {hoverCard ? (
         <Popup
