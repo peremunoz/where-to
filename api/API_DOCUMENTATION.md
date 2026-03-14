@@ -221,7 +221,7 @@ Delete an institution and all its nested children (cascading).
 |-------------|------|-------------|
 | `institutionId` | UUID | Filter buildings by institution |
 
-**Response:** `200` — array of buildings (includes nested `floors`).
+**Response:** `200` — array of buildings (includes nested `floors` and `seats`).
 
 > Each building includes `totalCapacity`, computed as the sum of all `floors[].capacity`.
 
