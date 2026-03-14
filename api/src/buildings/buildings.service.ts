@@ -66,7 +66,7 @@ export class BuildingsService {
     return normalized;
   }
 
-  private normalizeCreateDto(dto: CreateBuildingDto): CreateBuildingDto {
+  private normalizeCreateDto(dto: CreateBuildingDto): Partial<Building> {
     const normalizedPolygon = this.normalizePolygonInput(dto.polygon);
     return {
       ...dto,
@@ -74,7 +74,7 @@ export class BuildingsService {
     };
   }
 
-  private normalizeUpdateDto(dto: UpdateBuildingDto): UpdateBuildingDto {
+  private normalizeUpdateDto(dto: UpdateBuildingDto): Partial<Building> {
     if (!Object.prototype.hasOwnProperty.call(dto, 'polygon')) {
       return dto;
     }

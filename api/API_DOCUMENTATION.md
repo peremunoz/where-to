@@ -87,7 +87,7 @@ source.onerror = () => {
 
 | Enum | Values |
 |------|--------|
-| `SeatType` | `TABLE`, `CHAIR`, `SOFA` |
+| `SeatType` | `TABLE`, `SOFA`, `COMPUTER` |
 | `SeatStatus` | `AVAILABLE`, `OCCUPIED` |
 
 ---
@@ -140,7 +140,7 @@ List all institutions.
             "seats": [
               {
                 "id": "uuid",
-                "type": "CHAIR",
+                "type": "COMPUTER",
                 "label": "A-01",
                 "status": "AVAILABLE",
                 "floorId": "uuid"
@@ -342,7 +342,7 @@ Delete an institution and all its nested children (cascading).
 **Body:**
 ```json
 {
-  "type": "CHAIR",
+  "type": "COMPUTER",
   "label": "A-01",
   "status": "AVAILABLE",
   "x": 18.5,

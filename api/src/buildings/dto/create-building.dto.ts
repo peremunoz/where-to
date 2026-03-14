@@ -1,10 +1,7 @@
 import { IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
-<<<<<<< HEAD
 import { Transform } from 'class-transformer';
-=======
 import { Type } from 'class-transformer';
 import { ValidateNested } from 'class-validator';
->>>>>>> d9c0f8c9b4ac2c644a8719302dbb5c6668d02e63
 import { PointDto } from '../../common/dto/point.dto.js';
 import { IsPolygon } from '../../common/validators/geometry.validators.js';
 
