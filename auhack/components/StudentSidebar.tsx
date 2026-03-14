@@ -298,7 +298,7 @@ export function StudentSidebar() {
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white/90 px-2 py-2 text-xs text-slate-700 outline-none"
               >
                 <option value="all">All types</option>
-                <option value="CHAIR">Chair</option>
+                <option value="COMPUTER">Computer</option>
                 <option value="TABLE">Table</option>
                 <option value="SOFA">Sofa</option>
               </select>

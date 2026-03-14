@@ -27,7 +27,7 @@ export interface ApiPoint {
 
 export interface ApiSeat {
   id: string;
-  type: "TABLE" | "CHAIR" | "SOFA";
+  type: "TABLE" | "CHAIR" | "COMPUTER" | "SOFA";
   label: string;
   status: "AVAILABLE" | "OCCUPIED";
   x: number | null;
@@ -86,7 +86,7 @@ export interface UpdateFloorInput {
 }
 
 export interface CreateSeatInput {
-  type: "TABLE" | "CHAIR" | "SOFA";
+  type: "TABLE" | "COMPUTER" | "SOFA";
   label: string;
   status?: "AVAILABLE" | "OCCUPIED";
   x?: number;
@@ -95,7 +95,7 @@ export interface CreateSeatInput {
 }
 
 export interface UpdateSeatInput {
-  type?: "TABLE" | "CHAIR" | "SOFA";
+  type?: "TABLE" | "COMPUTER" | "SOFA";
   label?: string;
   status?: "AVAILABLE" | "OCCUPIED";
   x?: number;
@@ -149,6 +149,14 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function toApiSeatType(type: CreateSeatInput["type"]): "TABLE" | "CHAIR" | "SOFA" {
+  if (type === "COMPUTER") {
+    return "CHAIR";
+  }
+
+  return type;
+}
+
 export function getInstitutionTree(): Promise<ApiInstitutionTree[]> {
   return apiRequest<ApiInstitutionTree[]>("/institutions?includeTree=true");
 }
@@ -186,15 +194,25 @@ export function updateFloor(id: string, input: UpdateFloorInput): Promise<ApiFlo
 }
 
 export function createSeat(input: CreateSeatInput): Promise<ApiSeat> {
+  const normalizedInput = {
+    ...input,
+    type: toApiSeatType(input.type),
+  };
+
   return apiRequest<ApiSeat>("/seats", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify(normalizedInput),
   });
 }
 
 export function updateSeat(id: string, input: UpdateSeatInput): Promise<ApiSeat> {
+  const normalizedInput = {
+    ...input,
+    type: input.type ? toApiSeatType(input.type) : undefined,
+  };
+
   return apiRequest<ApiSeat>(`/seats/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(input),
+    body: JSON.stringify(normalizedInput),
   });
 }

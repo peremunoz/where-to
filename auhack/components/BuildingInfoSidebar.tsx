@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { Armchair, Building2, Circle, CircleOff, DoorOpen, Table2, Users, X } from "lucide-react";
+import Image from "next/image";
+import { Building2, CircleOff, DoorOpen, Users, X } from "lucide-react";
 import { useMapContext } from "@/context/MapContext";
 import type { Seat, SeatType } from "@/lib/campus-data";
 
@@ -39,26 +40,26 @@ function toSeatSchemePoints(seats: Seat[]): SeatSchemePoint[] {
 
 function seatStatusClass(status: Seat["status"]): string {
   if (status === "Occupied") {
-    return "bg-rose-500 text-white";
+    return "border-rose-400 bg-rose-50";
   }
 
   if (status === "Maintenance") {
-    return "bg-amber-400 text-slate-900";
+    return "border-amber-400 bg-amber-50";
   }
 
-  return "bg-emerald-500 text-white";
+  return "border-emerald-400 bg-emerald-50";
 }
 
 function SeatTypeIcon({ type }: { type: SeatType }) {
-  if (type === "TABLE") {
-    return <Table2 size={12} />;
-  }
+  const iconSrc =
+    type === "SOFA"
+      ? "/armchair.png"
+      : type === "TABLE"
+        ? "/desk.png"
+        : "/monitor.png";
 
-  if (type === "SOFA") {
-    return <Armchair size={12} />;
-  }
-
-  return <Circle size={12} />;
+  const iconAlt = type === "SOFA" ? "Sofa seat" : type === "TABLE" ? "Table seat" : "Computer seat";
+  return <Image src={iconSrc} alt={iconAlt} width={16} height={16} className="h-4 w-4 object-contain" />;
 }
 
 export function BuildingInfoSidebar() {
@@ -211,7 +212,7 @@ export function BuildingInfoSidebar() {
                 {selectedFloorScheme.points.map(({ seat, left, top }) => (
                   <div
                     key={seat.id}
-                    className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full p-1.5 shadow ${seatStatusClass(seat.status)}`}
+                    className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-lg border p-1.5 shadow ${seatStatusClass(seat.status)}`}
                     style={{ left: `${left}%`, top: `${top}%` }}
                     title={`${seat.sensorId} · ${seat.type} · ${seat.status}`}
                   >
