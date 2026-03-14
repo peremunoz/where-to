@@ -17,19 +17,37 @@ export class BuildingsService {
     return this.buildingRepo.save(building);
   }
 
-  findAll(institutionId?: string): Promise<Building[]> {
+  private withTotalCapacity(
+    building: Building,
+  ): Building & { totalCapacity: number } {
+    const totalCapacity = (building.floors ?? []).reduce(
+      (sum, floor) => sum + (floor.capacity ?? 0),
+      0,
+    );
+
+    return {
+      ...building,
+      totalCapacity,
+    };
+  }
+
+  async findAll(
+    institutionId?: string,
+  ): Promise<Array<Building & { totalCapacity: number }>> {
     const where: FindOptionsWhere<Building> = {};
     if (institutionId) {
       where.institutionId = institutionId;
     }
-    return this.buildingRepo.find({
+    const buildings = await this.buildingRepo.find({
       where,
       relations: { floors: true },
       order: { name: 'ASC' },
     });
+
+    return buildings.map((building) => this.withTotalCapacity(building));
   }
 
-  async findOne(id: string): Promise<Building> {
+  async findOne(id: string): Promise<Building & { totalCapacity: number }> {
     const building = await this.buildingRepo.findOne({
       where: { id },
       relations: { floors: { seats: true } },
@@ -37,7 +55,7 @@ export class BuildingsService {
     if (!building) {
       throw new NotFoundException(`Building with ID "${id}" not found`);
     }
-    return building;
+    return this.withTotalCapacity(building);
   }
 
   async update(id: string, dto: UpdateBuildingDto): Promise<Building> {

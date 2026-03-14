@@ -8,6 +8,11 @@ export class CreateFloorDto {
   @IsNotEmpty()
   floorNumber: number;
 
+  @IsInt()
+  @Min(0)
+  @IsNotEmpty()
+  capacity: number;
+
   @IsUUID()
   buildingId: string;
 

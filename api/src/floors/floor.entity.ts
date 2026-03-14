@@ -20,6 +20,9 @@ export class Floor {
   @Column({ type: 'int' })
   floorNumber: number;
 
+  @Column({ type: 'int', default: 0 })
+  capacity: number;
+
   /** Blocked/unavailable areas — array of polygons, each polygon is an array of {x, y} points */
   @Column({ type: 'jsonb', nullable: true, default: [] })
   blockedAreas: Point[][] | null;

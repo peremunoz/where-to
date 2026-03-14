@@ -159,11 +159,13 @@ Delete an institution and all its nested children (cascading).
 
 **Response:** `200` — array of buildings (includes nested `floors`).
 
+> Each building includes `totalCapacity`, computed as the sum of all `floors[].capacity`.
+
 ---
 
 ### `GET /api/buildings/:id`
 
-**Response:** `200` — building with nested `floors → seats`.
+**Response:** `200` — building with nested `floors → seats` and computed `totalCapacity`.
 
 ---
 
@@ -200,6 +202,7 @@ Delete an institution and all its nested children (cascading).
 ```json
 {
   "floorNumber": 2,
+  "capacity": 120,
   "buildingId": "uuid-of-the-building",
   "blockedAreas": [
     [
@@ -246,6 +249,7 @@ Delete an institution and all its nested children (cascading).
 ```json
 {
   "floorNumber": 3,
+  "capacity": 140,
   "blockedAreas": [
     [
       { "x": 5, "y": 5 },
