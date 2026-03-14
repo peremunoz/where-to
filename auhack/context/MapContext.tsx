@@ -64,6 +64,7 @@ interface MapContextValue {
   recentSavedBuildingId: string | null;
   buildingInfoOpen: boolean;
   directionsTargetBuildingId: string | null;
+  userLocation: [number, number] | null;
   isMobileViewport: boolean;
   activeFloor: FloorLabel;
   role: UserRole;
@@ -85,6 +86,7 @@ interface MapContextValue {
   setActiveSeatType: (seatType: SeatType) => void;
   setActiveFloorNumber: (floor: number) => void;
   setDraftBuildingFootprint: (polygon: [number, number][]) => void;
+  setUserLocation: (coordinates: [number, number] | null) => void;
   openBuildingInfo: () => void;
   closeBuildingInfo: () => void;
   setDirectionsTargetBuildingId: (buildingId: string | null) => void;
@@ -307,6 +309,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
   const [recentSavedBuildingId, setRecentSavedBuildingId] = useState<string | null>(null);
   const [buildingInfoOpen, setBuildingInfoOpen] = useState(false);
   const [directionsTargetBuildingId, setDirectionsTargetBuildingId] = useState<string | null>(null);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -763,6 +766,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
     recentSavedBuildingId,
     buildingInfoOpen,
     directionsTargetBuildingId,
+    userLocation,
     isMobileViewport,
     activeFloor,
     role,
@@ -784,6 +788,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
     setActiveSeatType,
     setActiveFloorNumber,
     setDraftBuildingFootprint,
+    setUserLocation,
     openBuildingInfo,
     closeBuildingInfo,
     setDirectionsTargetBuildingId,

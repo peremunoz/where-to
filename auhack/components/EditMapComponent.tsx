@@ -494,6 +494,8 @@ export function EditMapComponent() {
     currentBuildingData,
     draftBuildingFootprint,
     activeFloorNumber,
+    userLocation,
+    setUserLocation,
     setDraftBuildingFootprint,
     setNotice,
     addSeat,
@@ -520,7 +522,6 @@ export function EditMapComponent() {
   const [is3DMode, setIs3DMode] = useState(false);
   const [hasMapLoaded, setHasMapLoaded] = useState(false);
   const [lightPreset, setLightPreset] = useState<LightPreset>("day");
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [directionsRouteData, setDirectionsRouteData] = useState<FeatureCollection>({
     type: "FeatureCollection",
     features: [],
@@ -932,7 +933,7 @@ export function EditMapComponent() {
         timeout: 12000,
       },
     );
-  }, []);
+  }, [setUserLocation]);
 
   useEffect(() => {
     if (!recentSavedBuildingId) {
