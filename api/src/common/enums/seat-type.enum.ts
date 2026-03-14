@@ -1,5 +1,5 @@
 export enum SeatType {
   TABLE = 'TABLE',
-  CHAIR = 'CHAIR',
+  COMPUTER = 'COMPUTER',
   SOFA = 'SOFA',
 }

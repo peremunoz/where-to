@@ -149,11 +149,7 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function toApiSeatType(type: CreateSeatInput["type"]): "TABLE" | "CHAIR" | "SOFA" {
-  if (type === "COMPUTER") {
-    return "CHAIR";
-  }
-
+function toApiSeatType(type: CreateSeatInput["type"]): "TABLE" | "COMPUTER" | "SOFA" {
   return type;
 }
 
